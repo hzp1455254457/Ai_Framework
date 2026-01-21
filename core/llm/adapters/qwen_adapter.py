@@ -148,16 +148,46 @@ class QwenAdapter(BaseLLMAdapter):
             
             result = response.json()
             
+            # 检查是否有错误信息
+            if "code" in result and result.get("code") != "Success":
+                error_msg = result.get("message", "未知错误")
+                raise AdapterCallError(f"通义千问API返回错误: {error_msg}")
+            
             # 解析响应
             output = result.get("output", {})
-            choices = output.get("choices", [])
             
-            if not choices:
-                raise AdapterCallError("API响应中没有choices字段")
+            # 尝试多种响应格式
+            choices = None
+            content = ""
             
-            choice = choices[0]
-            message = choice.get("message", {})
-            content = message.get("content", "")
+            # 格式1: output.choices[0].message.content (标准格式)
+            if "choices" in output:
+                choices = output.get("choices", [])
+                if choices:
+                    choice = choices[0]
+                    message = choice.get("message", {})
+                    content = message.get("content", "")
+            
+            # 格式2: output.text (直接文本格式)
+            elif "text" in output:
+                content = output.get("text", "")
+                choices = [{"message": {"content": content}}]
+            
+            # 格式3: output.choices 直接是数组
+            elif isinstance(output, list):
+                choices = output
+                if choices:
+                    choice = choices[0]
+                    message = choice.get("message", {})
+                    content = message.get("content", "")
+            
+            # 如果还是找不到内容，记录响应以便调试
+            if not content:
+                import json
+                error_detail = json.dumps(result, ensure_ascii=False, indent=2)
+                raise AdapterCallError(
+                    f"API响应中没有找到有效内容。响应格式:\n{error_detail}"
+                )
             
             # 构建标准响应
             usage = result.get("usage", {})
@@ -171,12 +201,19 @@ class QwenAdapter(BaseLLMAdapter):
                 },
                 "metadata": {
                     "model": result.get("model", model),
-                    "finish_reason": choice.get("finish_reason"),
+                    "finish_reason": choices[0].get("finish_reason") if choices else None,
                 },
             }
             
         except HTTPError as e:
-            raise AdapterCallError(f"通义千问API调用失败: {e}") from e
+            error_detail = f"HTTP状态码: {e.response.status_code if hasattr(e, 'response') else 'unknown'}"
+            if hasattr(e, 'response'):
+                try:
+                    error_body = e.response.json()
+                    error_detail += f", 响应: {json.dumps(error_body, ensure_ascii=False)}"
+                except:
+                    error_detail += f", 响应文本: {e.response.text[:200]}"
+            raise AdapterCallError(f"通义千问API调用失败: {error_detail}") from e
         except Exception as e:
             raise AdapterCallError(f"通义千问API调用出错: {e}") from e
     

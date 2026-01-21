@@ -15,7 +15,7 @@ llm:
       api_key: ""  # 豆包API密钥
       base_url: "https://ark.cn-beijing.volces.com/api/v3"  # 可选
     qwen-adapter:
-      api_key: ""  # 通义千问API密钥
+      api_key: "sk-26d4187aac964ec3b72c1cbd52f1a841"  # 通义千问API密钥
       base_url: "https://dashscope.aliyuncs.com/api/v1"  # 可选
     deepseek-adapter:
       api_key: ""  # DeepSeek API密钥
