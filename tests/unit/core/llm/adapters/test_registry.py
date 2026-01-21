@@ -8,6 +8,8 @@ from core.llm.adapters.registry import AdapterRegistry
 from core.llm.adapters.doubao_adapter import DoubaoAdapter
 from core.llm.adapters.qwen_adapter import QwenAdapter
 from core.llm.adapters.deepseek_adapter import DeepSeekAdapter
+from core.llm.adapters.claude_adapter import ClaudeAdapter
+from core.llm.adapters.ollama_adapter import OllamaAdapter
 
 
 @pytest.mark.asyncio
@@ -28,6 +30,8 @@ class TestAdapterRegistry:
         assert "doubao-adapter" in adapters
         assert "qwen-adapter" in adapters
         assert "deepseek-adapter" in adapters
+        assert "claude-adapter" in adapters
+        assert "ollama-adapter" in adapters
     
     async def test_create_adapter(self):
         """测试创建适配器实例"""
@@ -81,6 +85,7 @@ class TestAdapterRegistry:
         # 基于模型名称前缀的匹配
         assert registry.get_adapter_for_model("qwen-plus") == "qwen-adapter"
         assert registry.get_adapter_for_model("deepseek-coder") == "deepseek-adapter"
+        assert registry.get_adapter_for_model("claude-3-5-sonnet") == "claude-adapter"
     
     async def test_register_model_mapping(self):
         """测试注册模型映射"""

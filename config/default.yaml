@@ -11,6 +11,9 @@ llm:
   
   # 适配器配置（每个适配器的独立配置）
   adapters:
+    openai-adapter:
+      api_key: ""  # OpenAI API密钥
+      base_url: "https://api.openai.com/v1"  # 可选，支持自定义端点
     doubao-adapter:
       api_key: ""  # 豆包API密钥
       base_url: "https://ark.cn-beijing.volces.com/api/v3"  # 可选
@@ -23,6 +26,12 @@ llm:
   
   # 模型到适配器的映射（可选，会自动推断）
   model_adapter_mapping:
+    "gpt-3.5-turbo": "openai-adapter"
+    "gpt-4": "openai-adapter"
+    "gpt-4-turbo": "openai-adapter"
+    "gpt-4o": "openai-adapter"
+    "o1-preview": "openai-adapter"
+    "o1-mini": "openai-adapter"
     "qwen-turbo": "qwen-adapter"
     "qwen-plus": "qwen-adapter"
     "qwen-max": "qwen-adapter"

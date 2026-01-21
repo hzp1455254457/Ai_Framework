@@ -23,6 +23,8 @@ from core.llm.models import LLMResponse, LLMMessage
 from core.llm.context import ConversationContext
 from core.llm.adapters.base import BaseLLMAdapter
 from core.llm.adapters.registry import AdapterRegistry
+from core.llm.utils.retry import retry_with_backoff
+from core.llm.utils.token_counter import TokenCounter
 
 
 class LLMError(Exception):
@@ -68,6 +70,7 @@ class LLMService(BaseService):
         self._default_model: str = config.get("llm", {}).get("default_model", "gpt-3.5-turbo")
         self._registry: AdapterRegistry = AdapterRegistry()
         self._auto_discover: bool = config.get("llm", {}).get("auto_discover_adapters", True)
+        self._token_counter: TokenCounter = TokenCounter()
     
     async def initialize(self) -> None:
         """初始化服务资源"""
@@ -212,13 +215,24 @@ class LLMService(BaseService):
         
         self.logger.debug(f"发送LLM请求，模型: {model}, 消息数: {len(messages)}")
         
+        # 获取重试配置
+        max_retries = self._config.get("llm", {}).get("max_retries", 3)
+        
         try:
-            # 调用适配器
-            result = await adapter.call(
-                messages=messages,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
+            # 使用重试机制调用适配器
+            async def _call_adapter():
+                return await adapter.call(
+                    messages=messages,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            
+            result = await retry_with_backoff(
+                _call_adapter,
+                max_attempts=max_retries,
+                initial_wait=1.0,
+                max_wait=10.0,
             )
             
             # 构建响应对象
@@ -304,8 +318,7 @@ class LLMService(BaseService):
             Token数量
         
         说明:
-            当前实现为简化版本，实际应该使用tiktoken等库进行精确计算
+            - GPT等模型：使用tiktoken进行精确计算
+            - 非OpenAI/未知模型：使用cl100k_base作为回退（仍为编码级别的真实token计数）
         """
-        # 简化实现：粗略估算（4个字符约等于1个token）
-        # 实际应该使用tiktoken等库
-        return len(text) // 4
+        return self._token_counter.count_text_tokens(text=text, model=model)

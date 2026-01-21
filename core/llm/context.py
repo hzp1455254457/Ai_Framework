@@ -57,7 +57,7 @@ class ConversationContext:
         示例:
             >>> context.add_message("user", "你好")
         """
-        if role not in ["user", "assistant", "system"]:
+        if role not in ["user", "assistant", "system", "tool"]:
             raise ValueError(f"无效的角色: {role}")
         
         message = {"role": role, "content": content}

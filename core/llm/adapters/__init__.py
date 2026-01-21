@@ -9,6 +9,9 @@ from .registry import AdapterRegistry
 from .doubao_adapter import DoubaoAdapter
 from .qwen_adapter import QwenAdapter
 from .deepseek_adapter import DeepSeekAdapter
+from .openai_adapter import OpenAIAdapter
+from .claude_adapter import ClaudeAdapter
+from .ollama_adapter import OllamaAdapter
 
 __all__ = [
     "BaseLLMAdapter",
@@ -16,4 +19,7 @@ __all__ = [
     "DoubaoAdapter",
     "QwenAdapter",
     "DeepSeekAdapter",
+    "OpenAIAdapter",
+    "ClaudeAdapter",
+    "OllamaAdapter",
 ]

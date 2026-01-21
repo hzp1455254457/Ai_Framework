@@ -60,10 +60,24 @@ class AdapterRegistry:
         """
         try:
             # 导入适配器模块
-            from core.llm.adapters import doubao_adapter, qwen_adapter, deepseek_adapter
+            from core.llm.adapters import (
+                doubao_adapter,
+                qwen_adapter,
+                deepseek_adapter,
+                openai_adapter,
+                claude_adapter,
+                ollama_adapter,
+            )
             
             # 扫描模块中的适配器类
-            modules = [doubao_adapter, qwen_adapter, deepseek_adapter]
+            modules = [
+                doubao_adapter,
+                qwen_adapter,
+                deepseek_adapter,
+                openai_adapter,
+                claude_adapter,
+                ollama_adapter,
+            ]
             
             for module in modules:
                 for name, obj in inspect.getmembers(module, inspect.isclass):
@@ -174,12 +188,18 @@ class AdapterRegistry:
                 return adapter_name
         
         # 默认匹配（基于模型名称前缀）
-        if model.startswith("qwen"):
+        if model.startswith("gpt") or model.startswith("o1"):
+            return "openai-adapter"
+        elif model.startswith("claude"):
+            return "claude-adapter"
+        elif model.startswith("qwen"):
             return "qwen-adapter"
         elif model.startswith("deepseek"):
             return "deepseek-adapter"
         elif "doubao" in model.lower():
             return "doubao-adapter"
+        elif "ollama" in model.lower() or model.lower().startswith("ollama:"):
+            return "ollama-adapter"
         
         return None
     

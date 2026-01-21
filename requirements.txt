@@ -3,20 +3,30 @@
 # HTTP客户端
 httpx>=0.24.0
 
+# Web框架
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
 # 配置文件解析
 PyYAML>=6.0
 
 # 环境变量管理
 python-dotenv>=1.0.0
 
+# 数据验证（FastAPI依赖）
+pydantic>=2.5.0
+
 # 日志管理（可选，当前使用标准库logging）
 # loguru>=0.7.0
 
-# 重试机制（可选）
-# tenacity>=8.2.0
+# 重试机制
+tenacity>=8.2.0
 
-# 异步文件操作（可选）
-# aiofiles>=23.0.0
+# 异步文件操作
+aiofiles>=23.0.0
 
-# Token计算（可选，用于LLM）
-# tiktoken>=0.5.0
+# 异步SQLite驱动
+aiosqlite>=0.19.0
+
+# Token计算（用于LLM精确计算）
+tiktoken>=0.12.0

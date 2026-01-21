@@ -136,7 +136,7 @@ class TestLLMService:
         service = LLMService(config)
         
         # Act
-        tokens = service.calculate_tokens("Hello, world!")
+        tokens = service.calculate_tokens("Hello, world!", model="gpt-3.5-turbo")
         
         # Assert
         assert isinstance(tokens, int)
