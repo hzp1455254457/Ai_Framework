@@ -1,0 +1,55 @@
+# AI框架默认配置文件
+
+# LLM服务配置
+llm:
+  api_key: ""  # API密钥，通过环境变量或环境配置文件设置
+  timeout: 30  # 请求超时时间（秒）
+  max_retries: 3  # 最大重试次数
+  default_model: "qwen-turbo"  # 默认模型
+  default_adapter: ""  # 默认适配器名称（可选，不设置则自动选择）
+  auto_discover_adapters: true  # 是否自动发现和注册适配器
+  
+  # 适配器配置（每个适配器的独立配置）
+  adapters:
+    doubao-adapter:
+      api_key: ""  # 豆包API密钥
+      base_url: "https://ark.cn-beijing.volces.com/api/v3"  # 可选
+    qwen-adapter:
+      api_key: ""  # 通义千问API密钥
+      base_url: "https://dashscope.aliyuncs.com/api/v1"  # 可选
+    deepseek-adapter:
+      api_key: ""  # DeepSeek API密钥
+      base_url: "https://api.deepseek.com/v1"  # 可选
+  
+  # 模型到适配器的映射（可选，会自动推断）
+  model_adapter_mapping:
+    "qwen-turbo": "qwen-adapter"
+    "qwen-plus": "qwen-adapter"
+    "qwen-max": "qwen-adapter"
+    "deepseek-chat": "deepseek-adapter"
+    "deepseek-coder": "deepseek-adapter"
+    "doubao-pro-4k": "doubao-adapter"
+    "doubao-pro-32k": "doubao-adapter"
+
+# 缓存配置
+cache:
+  backend: "memory"  # 缓存后端：memory/redis/file
+  ttl: 3600  # 缓存过期时间（秒）
+  max_size: 1000  # 最大缓存条目数
+
+# 日志配置
+log:
+  level: "INFO"  # 日志级别：DEBUG/INFO/WARNING/ERROR/CRITICAL
+  file: "logs/app.log"  # 日志文件路径（可选）
+  max_bytes: 10485760  # 日志文件最大大小（10MB）
+  backup_count: 5  # 备份文件数量
+
+# 存储配置
+storage:
+  backend: "sqlite"  # 存储后端：sqlite/postgresql
+  database: "data/app.db"  # 数据库文件路径
+
+# Agent配置
+agent:
+  max_iterations: 10  # 最大迭代次数
+  timeout: 300  # Agent任务超时时间（秒）

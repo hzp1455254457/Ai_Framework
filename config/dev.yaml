@@ -1,0 +1,11 @@
+# 开发环境配置文件
+# 开发环境的特定配置会覆盖default.yaml中的配置
+
+# LLM服务配置
+llm:
+  timeout: 10  # 开发环境使用较短的超时时间
+  max_retries: 1  # 开发环境减少重试次数
+
+# 日志配置
+log:
+  level: "DEBUG"  # 开发环境使用DEBUG级别，便于调试
