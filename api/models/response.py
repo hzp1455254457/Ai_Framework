@@ -4,7 +4,7 @@ API响应模型模块
 定义所有API响应的数据模型。
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
 
@@ -110,5 +110,45 @@ class ToolRegistrationResponse(BaseModel):
                 "success": True,
                 "message": "工具注册成功",
                 "tool_name": "get_weather"
+            }
+        }
+
+
+class VectorSearchResponse(BaseModel):
+    """向量搜索响应模型"""
+    
+    results: List[Dict[str, Any]] = Field(..., description="搜索结果列表")
+    count: int = Field(..., description="结果数量")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "results": [
+                    {
+                        "conversation_id": "conv-123",
+                        "similarity": 0.95,
+                        "metadata": {}
+                    }
+                ],
+                "count": 1
+            }
+        }
+
+
+class MultiAgentTaskResponse(BaseModel):
+    """多Agent任务响应模型"""
+    
+    content: str = Field(..., description="聚合后的执行结果")
+    agent_results: List[Dict[str, Any]] = Field(default_factory=list, description="各Agent的执行结果")
+    strategy: str = Field(..., description="使用的分配策略")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="其他元数据")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "content": "聚合后的结果",
+                "agent_results": [],
+                "strategy": "round_robin",
+                "metadata": {}
             }
         }

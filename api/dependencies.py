@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException
 from infrastructure.config.manager import ConfigManager
 from core.llm.service import LLMService
 from core.agent.engine import AgentEngine
+from core.agent.collaboration import AgentOrchestrator
 
 
 # 全局服务实例缓存
@@ -92,6 +93,38 @@ async def get_agent_engine(
             raise HTTPException(
                 status_code=500,
                 detail=f"Agent引擎初始化失败: {str(e)}"
+            ) from e
+    
+    return _service_cache[cache_key]
+
+
+async def get_agent_orchestrator(
+    config_manager: ConfigManager = Depends(get_config_manager),
+) -> AgentOrchestrator:
+    """
+    获取Agent编排器实例
+    
+    参数:
+        config_manager: 配置管理器实例
+    
+    返回:
+        Agent编排器实例
+    
+    异常:
+        HTTPException: 服务初始化失败时抛出
+    """
+    cache_key = "agent_orchestrator"
+    
+    if cache_key not in _service_cache:
+        try:
+            config = config_manager.get_all()
+            orchestrator = AgentOrchestrator(config)
+            await orchestrator.initialize()
+            _service_cache[cache_key] = orchestrator
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Agent编排器初始化失败: {str(e)}"
             ) from e
     
     return _service_cache[cache_key]

@@ -62,3 +62,22 @@ storage:
 agent:
   max_iterations: 10  # 最大迭代次数
   timeout: 300  # Agent任务超时时间（秒）
+  enable_long_term_memory: false  # 是否启用长期记忆
+  enable_planner: false  # 是否启用任务规划器
+  max_messages: null  # 最大消息数（null表示无限制）
+
+# 规划器配置
+planner:
+  enable_cache: true  # 是否启用规划结果缓存
+  model: null  # 规划器使用的模型（null表示使用默认模型）
+
+# 向量数据库配置
+vector_db:
+  backend: "chroma"  # 向量后端：chroma 或 sqlite-vss
+  persist_directory: "./chroma_db"  # Chroma持久化目录
+  host: "localhost"  # Chroma服务器地址（如果使用服务器模式）
+  port: 8000  # Chroma服务器端口
+
+# 多Agent协作配置
+collaboration:
+  strategy: "round_robin"  # 任务分配策略：round_robin/load_balancing/specialization

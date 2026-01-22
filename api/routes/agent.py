@@ -4,13 +4,25 @@ Agent路由模块
 提供Agent服务相关的API接口。
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 from fastapi import APIRouter, Depends, HTTPException, status
-from api.models.request import AgentTaskRequest, ToolRegistrationRequest
-from api.models.response import AgentTaskResponse, ToolRegistrationResponse, ErrorResponse
-from api.dependencies import get_agent_engine
+from api.models.request import (
+    AgentTaskRequest,
+    ToolRegistrationRequest,
+    VectorSearchRequest,
+    MultiAgentTaskRequest,
+)
+from api.models.response import (
+    AgentTaskResponse,
+    ToolRegistrationResponse,
+    VectorSearchResponse,
+    MultiAgentTaskResponse,
+    ErrorResponse,
+)
+from api.dependencies import get_agent_engine, get_agent_orchestrator
 from core.agent.engine import AgentEngine, AgentError
 from core.agent.tools import Tool, ToolError
+from core.agent.collaboration import AgentOrchestrator, DistributionStrategy, CollaborationError
 
 router = APIRouter()
 
@@ -43,6 +55,7 @@ async def run_task(
             model=request.model,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
+            context=request.context,
         )
         
         # 构建响应
@@ -168,4 +181,137 @@ async def list_tools(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取工具列表失败: {str(e)}",
+        ) from e
+
+
+@router.post("/memory/search", response_model=VectorSearchResponse)
+async def search_memory(
+    request: VectorSearchRequest,
+    agent_engine: AgentEngine = Depends(get_agent_engine),
+) -> VectorSearchResponse:
+    """
+    向量语义搜索接口
+    
+    在长期记忆中根据语义相似度搜索相关对话历史。
+    
+    参数:
+        request: 搜索请求
+        agent_engine: Agent引擎实例（依赖注入）
+    
+    返回:
+        搜索结果响应
+    
+    异常:
+        HTTPException: 搜索失败时抛出
+    
+    注意:
+        需要先配置向量后端才能使用此功能
+    """
+    try:
+        if not agent_engine._long_term_memory:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="长期记忆未启用，无法进行语义搜索",
+            )
+        
+        # 执行语义搜索
+        results = await agent_engine._long_term_memory.search_by_semantics(
+            query=request.query,
+            top_k=request.top_k,
+        )
+        
+        return VectorSearchResponse(
+            results=results,
+            count=len(results),
+        )
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"语义搜索失败: {str(e)}",
+        ) from e
+
+
+@router.post("/collaboration/task", response_model=MultiAgentTaskResponse)
+async def execute_multi_agent_task(
+    request: MultiAgentTaskRequest,
+    orchestrator: AgentOrchestrator = Depends(get_agent_orchestrator),
+) -> MultiAgentTaskResponse:
+    """
+    多Agent协作任务执行接口
+    
+    使用多个Agent协同执行任务。
+    
+    参数:
+        request: 多Agent任务请求
+        orchestrator: Agent编排器实例（依赖注入）
+    
+    返回:
+        多Agent任务响应
+    
+    异常:
+        HTTPException: 执行失败时抛出
+    """
+    try:
+        # 设置分配策略
+        try:
+            strategy = DistributionStrategy(request.strategy)
+            orchestrator.set_strategy(strategy)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"无效的分配策略: {request.strategy}",
+            )
+        
+        # 执行任务
+        result = await orchestrator.execute_task(
+            task=request.task,
+            conversation_id=request.conversation_id,
+            model=request.model,
+            temperature=request.temperature,
+        )
+        
+        return MultiAgentTaskResponse(
+            content=result.get("content", ""),
+            agent_results=[result],
+            strategy=request.strategy,
+            metadata=result.get("metadata", {}),
+        )
+    
+    except CollaborationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"多Agent任务执行失败: {str(e)}",
+        ) from e
+
+
+@router.get("/collaboration/status", response_model=Dict[str, Any])
+async def get_collaboration_status(
+    orchestrator: AgentOrchestrator = Depends(get_agent_orchestrator),
+) -> Dict[str, Any]:
+    """
+    获取多Agent协作状态
+    
+    参数:
+        orchestrator: Agent编排器实例（依赖注入）
+    
+    返回:
+        协作状态信息
+    """
+    try:
+        agents_status = orchestrator.get_agent_status()
+        return {
+            "agents": agents_status,
+            "strategy": orchestrator._strategy_type.value,
+            "total_agents": len(agents_status),
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取协作状态失败: {str(e)}",
         ) from e

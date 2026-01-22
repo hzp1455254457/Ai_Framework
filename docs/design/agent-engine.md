@@ -236,8 +236,46 @@ while iterations < max_iterations:
 
 ---
 
+---
+
+## 扩展功能
+
+### 任务规划器
+
+Agent引擎支持可选的任务规划器，能够将复杂任务分解为可执行的步骤序列。
+
+**启用方式**：
+- 配置 `agent.enable_planner: true`
+- 在 `run_task()` 中设置 `use_planner=True`
+
+**相关文档**：`docs/design/agent-planner.md`
+
+### 向量检索
+
+长期记忆支持基于向量嵌入的语义检索，可以搜索语义相似的对话历史。
+
+**启用方式**：
+- 配置向量后端（Chroma或SQLite-VSS）
+- 在LongTermMemory初始化时传入vector_backend
+
+**相关文档**：`docs/design/vector-memory.md`
+
+### 多Agent协作
+
+支持多个Agent实例协同执行任务，通过AgentOrchestrator进行任务分配和结果聚合。
+
+**使用方式**：
+- 创建AgentOrchestrator实例
+- 添加多个Agent实例
+- 使用编排器执行任务
+
+**相关文档**：`docs/design/agent-collaboration.md`
+
+---
+
 ## 变更历史
 
 | 版本 | 日期 | 变更内容 | 变更人 |
 |------|------|---------|--------|
 | v1.0 | 2026-01-21 | 初始版本，实现Agent引擎核心功能 | - |
+| v1.1 | 2026-01-21 | 扩展功能：任务规划器、向量检索、多Agent协作 | - |

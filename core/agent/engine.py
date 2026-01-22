@@ -25,6 +25,7 @@ from core.base.service import BaseService
 from core.llm.service import LLMService
 from core.agent.tools import ToolRegistry, ToolError
 from core.agent.memory import ShortTermMemory, LongTermMemory
+from core.agent.planner import Planner, LLMPlanner, Plan, PlannerError
 
 
 class AgentError(Exception):
@@ -69,8 +70,10 @@ class AgentEngine(BaseService):
         self._tool_registry: ToolRegistry = ToolRegistry()
         self._short_term_memory: Optional[ShortTermMemory] = None
         self._long_term_memory: Optional[LongTermMemory] = None
+        self._planner: Optional[Planner] = None
         self._max_iterations: int = config.get("agent", {}).get("max_iterations", 10)
         self._enable_long_term_memory: bool = config.get("agent", {}).get("enable_long_term_memory", False)
+        self._enable_planner: bool = config.get("agent", {}).get("enable_planner", False)
     
     async def initialize(self) -> None:
         """
@@ -103,6 +106,12 @@ class AgentEngine(BaseService):
                 storage_manager = StorageManager(storage_config)
                 await storage_manager.initialize()
                 self._long_term_memory = LongTermMemory(storage_manager)
+            
+            # 初始化规划器（如果启用）
+            if self._enable_planner:
+                planner_config = self._config.get("planner", {})
+                self._planner = LLMPlanner(self._llm_service, self._config)
+                self.logger.info("规划器已启用")
             
             self.logger.info("Agent引擎初始化完成")
         except Exception as e:
@@ -155,6 +164,20 @@ class AgentEngine(BaseService):
                         self._short_term_memory.add_message(msg["role"], msg["content"])
             except Exception as e:
                 self.logger.warning(f"加载长期记忆失败: {e}")
+        
+        # 如果启用规划器，先生成任务规划
+        plan: Optional[Plan] = None
+        if self._planner:
+            try:
+                plan = await self._planner.plan(task, context=kwargs.get("context"))
+                self.logger.info(f"任务规划完成，共 {len(plan.steps)} 个步骤")
+                # 将规划信息添加到记忆
+                plan_summary = f"任务规划：\n" + "\n".join([
+                    f"{i+1}. {step.description}" for i, step in enumerate(plan.steps)
+                ])
+                self._short_term_memory.add_message("system", plan_summary)
+            except PlannerError as e:
+                self.logger.warning(f"任务规划失败，将直接执行任务: {e}")
         
         # 添加任务到短期记忆
         self._short_term_memory.add_message("user", task)

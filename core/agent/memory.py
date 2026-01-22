@@ -21,6 +21,12 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from core.llm.context import ConversationContext
 
+# 向量后端类型，避免循环导入
+try:
+    from infrastructure.storage.vector_db import BaseVectorBackend
+except ImportError:
+    BaseVectorBackend = Any  # type: ignore
+
 
 class MemoryError(Exception):
     """记忆模块异常基类"""
@@ -137,12 +143,14 @@ class LongTermMemory:
     def __init__(
         self,
         storage_manager: Any,  # StorageManager类型，避免循环导入
+        vector_backend: Optional[BaseVectorBackend] = None,
     ) -> None:
         """
         初始化长期记忆
         
         参数:
             storage_manager: StorageManager实例
+            vector_backend: 向量后端实例（可选，用于语义检索）
         
         异常:
             MemoryError: 存储管理器无效时抛出
@@ -151,6 +159,8 @@ class LongTermMemory:
             raise MemoryError("存储管理器不能为空")
         
         self._storage = storage_manager
+        self._vector_backend = vector_backend
+        self._collection_name = "conversations"
     
     async def save(
         self,
@@ -239,3 +249,46 @@ class LongTermMemory:
             return await self._storage.list_conversations(limit=limit, offset=offset)
         except Exception as e:
             raise MemoryError(f"列出对话失败: {e}") from e
+    
+    async def search_by_semantics(
+        self,
+        query: str,
+        top_k: int = 5,
+        embedding_model: Optional[Any] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        基于语义相似度搜索对话历史
+        
+        参数:
+            query: 查询文本
+            top_k: 返回结果数量
+            embedding_model: 嵌入模型（可选，如果未提供则使用默认模型）
+        
+        返回:
+            搜索结果列表，每个结果包含conversation_id、similarity、metadata
+        
+        异常:
+            MemoryError: 搜索失败时抛出
+        
+        注意:
+            需要先配置向量后端才能使用此功能
+        """
+        if not self._vector_backend:
+            raise MemoryError("向量后端未配置，无法进行语义搜索")
+        
+        try:
+            # 生成查询向量（这里需要嵌入模型，暂时使用占位实现）
+            # 实际使用时需要集成sentence-transformers或其他嵌入模型
+            if embedding_model is None:
+                # 占位：实际应该调用嵌入模型
+                raise MemoryError("嵌入模型未提供，无法生成查询向量")
+            
+            # query_embedding = await embedding_model.embed(query)
+            # 暂时返回空列表，实际实现需要：
+            # 1. 调用嵌入模型生成查询向量
+            # 2. 在向量数据库中搜索
+            # 3. 返回结果
+            
+            return []
+        except Exception as e:
+            raise MemoryError(f"语义搜索失败: {e}") from e

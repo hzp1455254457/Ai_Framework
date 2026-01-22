@@ -63,6 +63,8 @@ class AgentTaskRequest(BaseModel):
     model: Optional[str] = Field(None, description="模型名称，默认使用服务默认模型")
     temperature: float = Field(0.7, ge=0.0, le=2.0, description="温度参数，控制输出随机性")
     max_tokens: Optional[int] = Field(None, ge=1, description="最大token数")
+    use_planner: bool = Field(False, description="是否使用任务规划器")
+    context: Optional[Dict[str, Any]] = Field(None, description="上下文信息（用于规划器）")
     
     class Config:
         json_schema_extra = {
@@ -70,7 +72,44 @@ class AgentTaskRequest(BaseModel):
                 "task": "查询北京天气",
                 "conversation_id": "conv-123",
                 "model": "gpt-3.5-turbo",
-                "temperature": 0.7
+                "temperature": 0.7,
+                "use_planner": False
+            }
+        }
+
+
+class VectorSearchRequest(BaseModel):
+    """向量搜索请求模型"""
+    
+    query: str = Field(..., description="查询文本", min_length=1)
+    top_k: int = Field(5, ge=1, le=100, description="返回结果数量")
+    conversation_id: Optional[str] = Field(None, description="限制搜索的对话ID（可选）")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "query": "关于天气的对话",
+                "top_k": 5
+            }
+        }
+
+
+class MultiAgentTaskRequest(BaseModel):
+    """多Agent任务请求模型"""
+    
+    task: str = Field(..., description="任务描述", min_length=1)
+    strategy: str = Field("round_robin", description="任务分配策略：round_robin/load_balancing/specialization")
+    agent_ids: Optional[List[str]] = Field(None, description="指定使用的Agent ID列表（可选）")
+    conversation_id: Optional[str] = Field(None, description="对话ID")
+    model: Optional[str] = Field(None, description="模型名称")
+    temperature: float = Field(0.7, ge=0.0, le=2.0, description="温度参数")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "task": "查询北京天气",
+                "strategy": "round_robin",
+                "agent_ids": ["agent1", "agent2"]
             }
         }
 

@@ -8,6 +8,16 @@ from .engine import AgentEngine
 from .tools import Tool, ToolRegistry, ToolError
 from .memory import ShortTermMemory, LongTermMemory, MemoryError
 from .workflow import Workflow, WorkflowError
+from .planner import Planner, LLMPlanner, Plan, PlanStep, PlannerError
+from .collaboration import (
+    AgentOrchestrator,
+    TaskDistributionStrategy,
+    RoundRobinStrategy,
+    LoadBalancingStrategy,
+    SpecializationStrategy,
+    DistributionStrategy,
+    CollaborationError,
+)
 
 __all__ = [
     "AgentEngine",
@@ -19,4 +29,16 @@ __all__ = [
     "MemoryError",
     "Workflow",
     "WorkflowError",
+    "Planner",
+    "LLMPlanner",
+    "Plan",
+    "PlanStep",
+    "PlannerError",
+    "AgentOrchestrator",
+    "TaskDistributionStrategy",
+    "RoundRobinStrategy",
+    "LoadBalancingStrategy",
+    "SpecializationStrategy",
+    "DistributionStrategy",
+    "CollaborationError",
 ]
