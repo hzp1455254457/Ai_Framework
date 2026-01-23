@@ -11,7 +11,7 @@ try:
     from core.agent.tools import Tool, ToolRegistry
 except ImportError:
     try:
-        from core.agent.tools.tools import Tool, ToolRegistry
+        from core.agent.tools import Tool, ToolRegistry
     except ImportError:
         raise ImportError("无法导入Tool和ToolRegistry，请检查导入路径")
 

@@ -77,13 +77,14 @@ class ShortTermMemory:
         
         self._context.add_message(role, content)
     
-    def add_tool_message(self, tool_name: str, tool_result: Any) -> None:
+    def add_tool_message(self, tool_name: str, tool_result: Any, tool_call_id: Optional[str] = None) -> None:
         """
         添加工具调用结果消息
         
         参数:
             tool_name: 工具名称
             tool_result: 工具执行结果（会被转换为字符串）
+            tool_call_id: 工具调用ID（可选，用于Function Calling）
         """
         # 将工具结果转换为字符串
         if isinstance(tool_result, str):
@@ -92,9 +93,15 @@ class ShortTermMemory:
             import json
             content = json.dumps(tool_result, ensure_ascii=False)
         
-        # 格式：tool_name: result
-        message_content = f"{tool_name}: {content}"
-        self.add_message("tool", message_content)
+        # 如果提供了tool_call_id，使用标准格式（用于Function Calling）
+        if tool_call_id:
+            # 标准格式：{"role": "tool", "content": "...", "tool_call_id": "..."}
+            # 使用add_message的kwargs参数传递tool_call_id
+            self._context.add_message("tool", content, tool_call_id=tool_call_id)
+        else:
+            # 旧格式：tool_name: result（兼容性）
+            message_content = f"{tool_name}: {content}"
+            self.add_message("tool", message_content)
     
     def get_messages(self) -> List[Dict[str, str]]:
         """

@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from core.base.service import BaseService
 from core.llm.service import LLMService
-from core.agent.tools.tools import ToolRegistry, ToolError
+from core.agent.tools import ToolRegistry, ToolError
 from core.agent.tools.web_tools_registry import register_web_tools
 from core.agent.memory import ShortTermMemory, LongTermMemory
 from core.agent.planner import Planner, LLMPlanner, Plan, PlannerError
@@ -221,7 +221,7 @@ class AgentEngine(BaseService):
                 
                 # 调用LLM
                 llm_kwargs = {
-                    "temperature": kwargs.get("temperature", 0.7),
+                    "temperature": kwargs.get("temperature", 0.1),  # 降低temperature以提高工具调用的确定性
                     "max_tokens": kwargs.get("max_tokens"),
                 }
                 if tools_schema:
@@ -245,42 +245,96 @@ class AgentEngine(BaseService):
                 function_call = metadata.get("function_call")
                 tool_calls = metadata.get("tool_calls") or []
                 
+                # 详细记录metadata内容（用于调试）
+                try:
+                    metadata_str = json.dumps(metadata, ensure_ascii=False, indent=2) if isinstance(metadata, dict) else str(metadata)
+                    self.logger.debug(f"LLM响应metadata详情: {metadata_str}")
+                except Exception as e:
+                    self.logger.debug(f"无法序列化metadata: {e}, metadata类型: {type(metadata)}")
+                
+                self.logger.info(f"检查工具调用: tool_calls数量={len(tool_calls) if tool_calls else 0}, function_call={bool(function_call)}")
+                if tool_calls:
+                    self.logger.info(f"工具调用详情: {json.dumps(tool_calls, ensure_ascii=False, indent=2)}")
+                if function_call:
+                    self.logger.info(f"function_call详情: {json.dumps(function_call, ensure_ascii=False, indent=2)}")
+                
                 # 处理工具调用（优先使用tool_calls，兼容function_call）
                 if tool_calls:
-                    # 处理多个工具调用
+                    self.logger.info(f"检测到工具调用: 数量={len(tool_calls)}")
+                    
+                    # 第一步：先执行所有工具，收集结果
+                    executed_tools = []  # 存储执行结果: [(tool_call_id, tool_name, tool_result), ...]
                     for tool_call in tool_calls:
                         tool_name = tool_call.get("function", {}).get("name")
                         tool_args_str = tool_call.get("function", {}).get("arguments", "{}")
+                        tool_call_id = tool_call.get("id")  # 获取tool_call_id
+                        
+                        self.logger.info(f"处理工具调用: tool_name={tool_name}, tool_call_id={tool_call_id}, args={tool_args_str[:100]}")
                         
                         if tool_name:
                             try:
                                 tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
                                 # 执行工具
+                                self.logger.info(f"执行工具: {tool_name} with args={tool_args}")
                                 tool_result = await self._tool_registry.execute(tool_name, tool_args)
+                                self.logger.info(f"工具执行成功: {tool_name}, result_length={len(str(tool_result))}")
                                 
                                 # 记录工具调用
                                 tool_calls_history.append({
                                     "tool": tool_name,
                                     "arguments": tool_args,
                                     "result": tool_result,
+                                    "tool_call_id": tool_call_id,
                                 })
                                 
-                                # 将工具结果添加到记忆
-                                self._short_term_memory.add_tool_message(tool_name, tool_result)
+                                # 保存执行结果，稍后添加到消息中
+                                executed_tools.append((tool_call_id, tool_name, tool_result))
                                 
                             except (ToolError, json.JSONDecodeError) as e:
-                                self.logger.error(f"工具调用失败: {e}")
-                                # 继续执行，不中断循环
+                                self.logger.error(f"工具调用失败: tool_name={tool_name}, error={e}", exc_info=True)
+                                # 记录失败的工具调用
+                                tool_calls_history.append({
+                                    "tool": tool_name,
+                                    "arguments": tool_args if 'tool_args' in locals() else {},
+                                    "result": None,
+                                    "error": str(e),
+                                })
+                        else:
+                            self.logger.warning(f"工具调用中缺少工具名称: {tool_call}")
+                    
+                    # 第二步：将assistant消息（包含tool_calls）添加到记忆
+                    # 注意：通义千问要求tool消息必须紧跟在包含tool_calls的assistant消息之后
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": response.content or "",
+                    }
+                    # 如果有tool_calls，添加到消息中
+                    if tool_calls:
+                        assistant_message["tool_calls"] = tool_calls
+                    self._short_term_memory._context._messages.append(assistant_message)
+                    
+                    # 第三步：现在添加所有工具结果消息（必须在assistant消息之后）
+                    for tool_call_id, tool_name, tool_result in executed_tools:
+                        if tool_call_id:
+                            # 将工具结果添加到记忆（包含tool_call_id）
+                            self._short_term_memory.add_tool_message(tool_name, tool_result, tool_call_id=tool_call_id)
+                    
+                    # 工具调用后继续循环，让LLM基于工具结果生成响应
+                    continue
                 
                 elif function_call:
                     # 兼容旧版function_call格式
                     tool_name = function_call.get("name")
                     tool_args_str = function_call.get("arguments", "{}")
                     
+                    self.logger.info(f"检测到function_call: tool_name={tool_name}")
+                    
                     if tool_name:
                         try:
                             tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
+                            self.logger.info(f"执行工具: {tool_name} with args={tool_args}")
                             tool_result = await self._tool_registry.execute(tool_name, tool_args)
+                            self.logger.info(f"工具执行成功: {tool_name}, result_length={len(str(tool_result))}")
                             
                             tool_calls_history.append({
                                 "tool": tool_name,
@@ -291,7 +345,16 @@ class AgentEngine(BaseService):
                             self._short_term_memory.add_tool_message(tool_name, tool_result)
                             
                         except (ToolError, json.JSONDecodeError) as e:
-                            self.logger.error(f"工具调用失败: {e}")
+                            self.logger.error(f"工具调用失败: tool_name={tool_name}, error={e}", exc_info=True)
+                            tool_calls_history.append({
+                                "tool": tool_name,
+                                "arguments": tool_args if 'tool_args' in locals() else {},
+                                "result": None,
+                                "error": str(e),
+                            })
+                    
+                    # 工具调用后继续循环
+                    continue
                 
                 else:
                     # 没有工具调用，输出最终结果

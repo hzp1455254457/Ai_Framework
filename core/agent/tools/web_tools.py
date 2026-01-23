@@ -30,7 +30,7 @@ from httpx import AsyncClient, HTTPError, TimeoutException
 
 # 导入ToolError（兼容两种导入方式）
 try:
-    from core.agent.tools.tools import ToolError
+    from core.agent.tools import ToolError
 except ImportError:
     from core.agent.tools import ToolError
 
@@ -133,25 +133,78 @@ async def _duckduckgo_search(
 
 def _parse_duckduckgo_html(html: str, max_results: int) -> str:
     """使用BeautifulSoup解析DuckDuckGo搜索结果"""
+    if BeautifulSoup is None:
+        return _parse_duckduckgo_html_simple(html, max_results)
+    
     soup = BeautifulSoup(html, "html.parser")
     results = []
     
-    # DuckDuckGo HTML结果结构
+    # DuckDuckGo HTML结果结构 - 尝试多种选择器
+    # 方法1: 查找class="result"的div
     result_divs = soup.find_all("div", class_="result")
     
+    # 方法2: 如果方法1失败，尝试查找包含链接的结果区域
+    if not result_divs:
+        # 查找所有包含链接的div，可能是搜索结果
+        result_divs = soup.find_all("div", class_=lambda x: x and ("result" in x.lower() or "web-result" in x.lower()))
+    
+    # 方法3: 如果还是失败，尝试查找所有包含href的a标签（在特定容器中）
+    if not result_divs:
+        # 查找所有链接，过滤掉导航链接等
+        all_links = soup.find_all("a", href=True)
+        seen_urls = set()
+        for link in all_links:
+            href = link.get("href", "")
+            text = link.get_text(strip=True)
+            # 过滤掉明显不是搜索结果的链接
+            if (href and text and len(text.strip()) > 3 and  # 降低最小长度要求以支持中文
+                not href.startswith("#") and not href.startswith("javascript:") and
+                href not in seen_urls):
+                # 检查是否是外部链接
+                if href.startswith("http") or href.startswith("//"):
+                    # 过滤掉DuckDuckGo自己的链接和明显不是搜索结果的链接
+                    if ("duckduckgo.com" not in href.lower() and 
+                        "about:" not in href.lower() and
+                        "/settings" not in href.lower() and
+                        "/bang" not in href.lower()):
+                        seen_urls.add(href)
+                        results.append(f"{len(results)+1}. {text.strip()}\n   URL: {href}")
+                        if len(results) >= max_results:
+                            break
+    
+    # 解析方法1和2找到的div
     for i, result_div in enumerate(result_divs[:max_results]):
+        # 尝试多种选择器查找标题和链接
         title_elem = result_div.find("a", class_="result__a")
+        if not title_elem:
+            title_elem = result_div.find("a", class_=lambda x: x and "result" in str(x).lower())
+        if not title_elem:
+            title_elem = result_div.find("a", href=True)
+        
         snippet_elem = result_div.find("a", class_="result__snippet")
+        if not snippet_elem:
+            snippet_elem = result_div.find("div", class_=lambda x: x and "snippet" in str(x).lower())
+        if not snippet_elem:
+            snippet_elem = result_div.find("span", class_=lambda x: x and "snippet" in str(x).lower())
         
         if title_elem:
             title = title_elem.get_text(strip=True)
             url = title_elem.get("href", "")
+            # 处理相对URL
+            if url and not url.startswith("http") and not url.startswith("//"):
+                if url.startswith("/"):
+                    url = "https://duckduckgo.com" + url
+                else:
+                    url = "https://" + url
             snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
             
-            results.append(f"{i+1}. {title}\n   URL: {url}\n   摘要: {snippet}")
+            if title and url:  # 确保有标题和URL
+                results.append(f"{len(results)+1}. {title}\n   URL: {url}\n   摘要: {snippet}")
     
     if not results:
-        return "未找到相关搜索结果"
+        # 如果还是没找到，尝试更宽松的搜索
+        # 查找所有包含查询关键词的链接
+        return "未找到相关搜索结果（DuckDuckGo可能已更改HTML结构，建议使用其他搜索引擎）"
     
     return "\n\n".join(results)
 
@@ -159,15 +212,32 @@ def _parse_duckduckgo_html(html: str, max_results: int) -> str:
 def _parse_duckduckgo_html_simple(html: str, max_results: int) -> str:
     """简单的HTML解析（不使用BeautifulSoup）"""
     results = []
-    # 简单的正则表达式匹配（不够健壮，但可以作为fallback）
-    pattern = r'<a class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>'
-    matches = re.findall(pattern, html)
+    # 尝试多种正则表达式模式
+    patterns = [
+        r'<a[^>]*class="[^"]*result[^"]*"[^>]*href="([^"]*)"[^>]*>([^<]+)</a>',
+        r'<a[^>]*href="([^"]*)"[^>]*class="[^"]*result[^"]*"[^>]*>([^<]+)</a>',
+        r'<a[^>]*href="(https?://[^"]+)"[^>]*>([^<]{10,})</a>',  # 匹配任何http/https链接
+    ]
     
-    for i, (url, title) in enumerate(matches[:max_results]):
-        results.append(f"{i+1}. {title}\n   URL: {url}")
+    seen_urls = set()
+    for pattern in patterns:
+        matches = re.findall(pattern, html, re.IGNORECASE)
+        for url, title in matches:
+            # 过滤掉明显不是搜索结果的链接
+            if (url and title and len(title.strip()) > 5 and 
+                url not in seen_urls and
+                not url.startswith("#") and 
+                not url.startswith("javascript:") and
+                "duckduckgo.com" not in url.lower()):
+                seen_urls.add(url)
+                results.append(f"{len(results)+1}. {title.strip()}\n   URL: {url}")
+                if len(results) >= max_results:
+                    break
+        if results:
+            break
     
     if not results:
-        return "未找到相关搜索结果"
+        return "未找到相关搜索结果（DuckDuckGo HTML结构可能已更改）"
     
     return "\n\n".join(results)
 

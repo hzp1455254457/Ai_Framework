@@ -4,6 +4,7 @@ Agent路由模块
 提供Agent服务相关的API接口。
 """
 
+import json
 import logging
 from typing import Dict, Any, List
 from pathlib import Path

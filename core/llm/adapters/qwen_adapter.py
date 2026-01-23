@@ -14,6 +14,7 @@
 """
 
 import json
+import logging
 from typing import List, Dict, Any, Optional, AsyncIterator
 from httpx import AsyncClient, HTTPError
 from core.llm.adapters.base import BaseLLMAdapter
@@ -54,6 +55,8 @@ class QwenAdapter(BaseLLMAdapter):
         self._api_key: str = ""
         self._base_url: str = "https://dashscope.aliyuncs.com/api/v1"
         self._client: Optional[AsyncClient] = None
+        # 初始化logger
+        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
     
     @property
     def name(self) -> str:
@@ -136,14 +139,52 @@ class QwenAdapter(BaseLLMAdapter):
         
         # 处理Function Calling工具（通义千问使用tools参数）
         # 根据测试结果，tools应该放在parameters中，而不是input中
+        # 通义千问要求工具格式为: {"type": "function", "function": {...}}
         if "functions" in kwargs:
             # 将functions转换为通义千问的tools格式
             functions = kwargs.pop("functions")
             if functions:
-                # 通义千问使用tools参数，必须放在parameters中（测试验证）
-                request_data["parameters"]["tools"] = functions
-                self.logger.info(f"添加工具定义到parameters.tools: 工具数量={len(functions)}")
-                self.logger.debug(f"工具定义详情: {functions}")
+                # 转换格式：从 OpenAI 格式转换为通义千问格式
+                # OpenAI格式: {"name": "...", "description": "...", "parameters": {...}}
+                # 通义千问格式: {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
+                qwen_tools = []
+                for func in functions:
+                    if isinstance(func, dict):
+                        # 如果已经是通义千问格式（有type字段），直接使用
+                        if "type" in func:
+                            qwen_tools.append(func)
+                        else:
+                            # 转换为通义千问格式
+                            qwen_tools.append({
+                                "type": "function",
+                                "function": {
+                                    "name": func.get("name", ""),
+                                    "description": func.get("description", ""),
+                                    "parameters": func.get("parameters", {})
+                                }
+                            })
+                    else:
+                        self.logger.warning(f"跳过无效的工具定义格式: {func}")
+                
+                if qwen_tools:
+                    # 通义千问使用tools参数
+                    # 根据通义千问API文档，tools可以放在input或parameters中
+                    # 尝试两种方式：先放在input中（这是更常见的做法）
+                    if "input" not in request_data:
+                        request_data["input"] = {}
+                    request_data["input"]["tools"] = qwen_tools
+                    
+                    # 同时也在parameters中设置（某些版本可能需要）
+                    request_data["parameters"]["tools"] = qwen_tools
+                    
+                    # 设置tool_choice以启用工具调用
+                    # 根据通义千问API文档，tool_choice可选值：auto（自动选择）、none（不使用工具）、required（必须使用工具）
+                    # 使用"auto"让LLM自动决定是否使用工具（第一次调用时使用，后续迭代中如果已有tool消息，LLM应该能正确判断）
+                    request_data["parameters"]["tool_choice"] = "auto"
+                    self.logger.info(f"添加工具定义: input.tools和parameters.tools, 工具数量={len(qwen_tools)}, tool_choice=auto")
+                    self.logger.debug(f"工具定义详情: {qwen_tools}")
+                else:
+                    self.logger.warning("转换后的工具列表为空")
             else:
                 self.logger.warning("functions参数为空，未添加工具定义")
         else:
@@ -152,6 +193,18 @@ class QwenAdapter(BaseLLMAdapter):
         # 合并其他参数到parameters
         if kwargs:
             request_data["parameters"].update(kwargs)
+        
+        # 记录完整的请求数据（用于调试）
+        try:
+            import json as json_module
+            request_str = json_module.dumps(request_data, ensure_ascii=False, indent=2)
+            self.logger.debug(f"通义千问API请求数据: {request_str}")
+            # 特别记录messages结构，检查tool消息格式
+            if "input" in request_data and "messages" in request_data["input"]:
+                messages_str = json_module.dumps(request_data["input"]["messages"], ensure_ascii=False, indent=2)
+                self.logger.debug(f"通义千问API请求messages: {messages_str}")
+        except Exception as e:
+            self.logger.debug(f"无法序列化请求数据: {e}")
         
         try:
             # 发送请求
@@ -196,13 +249,28 @@ class QwenAdapter(BaseLLMAdapter):
                     message = choice.get("message", {})
                     content = message.get("content", "")
             
-            # 如果还是找不到内容，记录响应以便调试
+            # 如果还是找不到内容，检查是否是工具调用（工具调用时content可能为空）
             if not content:
-                import json
-                error_detail = json.dumps(result, ensure_ascii=False, indent=2)
-                raise AdapterCallError(
-                    f"API响应中没有找到有效内容。响应格式:\n{error_detail}"
-                )
+                # 检查是否有工具调用
+                has_tool_calls = False
+                if choices:
+                    choice = choices[0]
+                    message = choice.get("message", {})
+                    if "tool_calls" in message or "function_call" in message:
+                        has_tool_calls = True
+                    elif choice.get("finish_reason") == "tool_calls":
+                        has_tool_calls = True
+                
+                # 如果有工具调用，content为空是正常的
+                if not has_tool_calls:
+                    import json
+                    error_detail = json.dumps(result, ensure_ascii=False, indent=2)
+                    raise AdapterCallError(
+                        f"API响应中没有找到有效内容。响应格式:\n{error_detail}"
+                    )
+                else:
+                    # 工具调用时，content可以为空字符串
+                    content = ""
             
             # 构建标准响应
             usage = result.get("usage", {})
@@ -216,15 +284,106 @@ class QwenAdapter(BaseLLMAdapter):
             # 检查是否有工具调用（通义千问可能在message中返回tool_calls）
             if choices:
                 message = choices[0].get("message", {})
+                finish_reason = choices[0].get("finish_reason", "")
+                
+                # 详细记录响应结构（用于调试）
+                # 注意：json已在文件顶部导入，这里直接使用
+                try:
+                    import json as json_module
+                    message_str = json_module.dumps(message, ensure_ascii=False, indent=2)
+                    self.logger.debug(f"通义千问响应message结构: {message_str}")
+                except Exception as e:
+                    self.logger.debug(f"无法序列化message: {e}, message类型: {type(message)}")
+                
+                # 记录完整的响应结构以便调试
+                try:
+                    import json as json_module
+                    result_str = json_module.dumps(result, ensure_ascii=False, indent=2)
+                    self.logger.debug(f"通义千问完整响应: {result_str}")
+                except Exception as e:
+                    self.logger.debug(f"无法序列化完整响应: {e}, result类型: {type(result)}")
+                
+                # 检查finish_reason，如果是tool_calls，说明需要工具调用
+                self.logger.info(f"finish_reason: {finish_reason}")
+                
                 # 通义千问的工具调用可能在message.tool_calls中
                 if "tool_calls" in message:
-                    metadata["tool_calls"] = message.get("tool_calls", [])
+                    tool_calls = message.get("tool_calls", [])
+                    # 转换通义千问格式到标准格式（如果需要）
+                    # 通义千问格式: [{"function": {"name": "...", "arguments": "..."}, "type": "function", "id": "..."}]
+                    # 标准格式: [{"id": "...", "type": "function", "function": {"name": "...", "arguments": "..."}}]
+                    standardized_tool_calls = []
+                    for tc in tool_calls:
+                        if isinstance(tc, dict):
+                            # 如果已经是标准格式（有function.name），直接使用
+                            if "function" in tc and isinstance(tc["function"], dict) and "name" in tc["function"]:
+                                standardized_tool_calls.append(tc)
+                            # 如果是其他格式，尝试转换
+                            elif "function" in tc:
+                                standardized_tool_calls.append({
+                                    "id": tc.get("id", tc.get("function", {}).get("name", "unknown")),
+                                    "type": tc.get("type", "function"),
+                                    "function": {
+                                        "name": tc["function"].get("name", ""),
+                                        "arguments": tc["function"].get("arguments", "{}")
+                                    }
+                                })
+                    metadata["tool_calls"] = standardized_tool_calls if standardized_tool_calls else tool_calls
+                    self.logger.info(f"✅ 从message.tool_calls提取工具调用: 数量={len(metadata['tool_calls'])}")
                 # 或者可能在choice.tool_calls中
                 elif "tool_calls" in choices[0]:
-                    metadata["tool_calls"] = choices[0].get("tool_calls", [])
+                    tool_calls = choices[0].get("tool_calls", [])
+                    metadata["tool_calls"] = tool_calls
+                    self.logger.info(f"✅ 从choice.tool_calls提取工具调用: 数量={len(tool_calls)}")
+                # 检查output中是否有tool_calls
+                elif "tool_calls" in output:
+                    tool_calls = output.get("tool_calls", [])
+                    metadata["tool_calls"] = tool_calls
+                    self.logger.info(f"✅ 从output.tool_calls提取工具调用: 数量={len(tool_calls)}")
+                # 检查result中是否有tool_calls
+                elif "tool_calls" in result:
+                    tool_calls = result.get("tool_calls", [])
+                    metadata["tool_calls"] = tool_calls
+                    self.logger.info(f"✅ 从result.tool_calls提取工具调用: 数量={len(tool_calls)}")
+                # 检查message中是否有function_call（兼容旧格式）
+                elif "function_call" in message:
+                    function_call = message.get("function_call", {})
+                    # 转换为tool_calls格式
+                    tool_calls = [{
+                        "id": function_call.get("name", "unknown"),
+                        "type": "function",
+                        "function": {
+                            "name": function_call.get("name", ""),
+                            "arguments": function_call.get("arguments", "{}")
+                        }
+                    }]
+                    metadata["tool_calls"] = tool_calls
+                    self.logger.info(f"✅ 从message.function_call提取工具调用: {function_call}")
+                # 如果finish_reason是tool_calls，但响应中没有tool_calls字段，可能是通义千问的格式问题
+                elif finish_reason == "tool_calls":
+                    self.logger.warning("⚠️ finish_reason是tool_calls，但响应中没有找到tool_calls字段，可能是通义千问API格式问题")
+                    # 尝试从message中查找可能的工具调用信息
+                    if isinstance(message, dict):
+                        self.logger.debug(f"message中的所有字段: {list(message.keys())}")
+                else:
+                    self.logger.warning("❌ 未在响应中找到tool_calls字段，检查所有可能位置...")
+                    # 检查所有可能的位置
+                    all_keys = set()
+                    if isinstance(message, dict):
+                        all_keys.update(message.keys())
+                    if isinstance(choices[0], dict):
+                        all_keys.update(choices[0].keys())
+                    if isinstance(output, dict):
+                        all_keys.update(output.keys())
+                    if isinstance(result, dict):
+                        all_keys.update(result.keys())
+                    self.logger.debug(f"响应中所有可用字段: {sorted(all_keys)}")
+                
                 # 兼容function_call格式
                 if "function_call" in message:
+                    import json as json_module
                     metadata["function_call"] = message.get("function_call")
+                    self.logger.info(f"✅ 检测到function_call: {json_module.dumps(metadata['function_call'], ensure_ascii=False)}")
             
             return {
                 "content": content,

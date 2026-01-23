@@ -53,6 +53,39 @@ if not llm_logger.handlers:
         llm_logger.addHandler(file_handler)
         llm_logger.addHandler(console_handler)
         
+        # 配置Agent引擎和Qwen适配器的日志也输出到同一个文件
+        # 注意：AgentEngine使用 core.agent.engine.AgentEngine 作为logger名称
+        agent_engine_logger = logging.getLogger("core.agent.engine")
+        agent_engine_logger.setLevel(logging.DEBUG)
+        if not agent_engine_logger.handlers:  # 避免重复添加
+            agent_engine_logger.addHandler(file_handler)
+            agent_engine_logger.addHandler(console_handler)
+        agent_engine_logger.propagate = False  # 避免重复输出
+        
+        # AgentEngine类的logger
+        agent_engine_class_logger = logging.getLogger("core.agent.engine.AgentEngine")
+        agent_engine_class_logger.setLevel(logging.DEBUG)
+        if not agent_engine_class_logger.handlers:  # 避免重复添加
+            agent_engine_class_logger.addHandler(file_handler)
+            agent_engine_class_logger.addHandler(console_handler)
+        agent_engine_class_logger.propagate = False
+        
+        # Qwen适配器的logger
+        qwen_adapter_logger = logging.getLogger("core.llm.adapters.qwen_adapter")
+        qwen_adapter_logger.setLevel(logging.DEBUG)
+        if not qwen_adapter_logger.handlers:  # 避免重复添加
+            qwen_adapter_logger.addHandler(file_handler)
+            qwen_adapter_logger.addHandler(console_handler)
+        qwen_adapter_logger.propagate = False
+        
+        # QwenAdapter类的logger
+        qwen_adapter_class_logger = logging.getLogger("core.llm.adapters.qwen_adapter.QwenAdapter")
+        qwen_adapter_class_logger.setLevel(logging.DEBUG)
+        if not qwen_adapter_class_logger.handlers:  # 避免重复添加
+            qwen_adapter_class_logger.addHandler(file_handler)
+            qwen_adapter_class_logger.addHandler(console_handler)
+        qwen_adapter_class_logger.propagate = False
+        
         # 测试日志
         llm_logger.info(f"LLM API日志系统初始化完成，日志文件: {log_file.absolute()}")
     except Exception as e:
