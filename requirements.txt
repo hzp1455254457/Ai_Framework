@@ -30,3 +30,9 @@ aiosqlite>=0.19.0
 
 # Token计算（用于LLM精确计算）
 tiktoken>=0.12.0
+
+# 加密库（用于API密钥加密存储）
+cryptography>=41.0.0
+
+# HTML解析库（用于互联网访问工具）
+beautifulsoup4>=4.12.0

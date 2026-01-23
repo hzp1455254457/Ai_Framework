@@ -55,6 +55,7 @@ class ConfigValidator:
         1. 配置是否为字典类型
         2. 必需键是否存在
         3. 配置值类型是否正确（可选）
+        4. 加密配置格式是否正确（如果存在）
         
         参数:
             config: 配置字典
@@ -73,7 +74,38 @@ class ConfigValidator:
             if key not in config:
                 raise ConfigValidationError(f"缺少必需配置项: {key}")
         
+        # 验证加密配置格式（递归检查）
+        self._validate_encryption_format(config)
+        
         return True
+    
+    def _validate_encryption_format(self, config: Dict[str, Any], path: str = "") -> None:
+        """
+        验证加密配置格式
+        
+        递归检查配置中的加密值格式是否正确。
+        
+        参数:
+            config: 配置字典
+            path: 当前配置路径（用于错误提示）
+        
+        异常:
+            ConfigValidationError: 加密格式错误时抛出
+        """
+        for key, value in config.items():
+            current_path = f"{path}.{key}" if path else key
+            
+            if isinstance(value, dict):
+                # 递归检查嵌套字典
+                self._validate_encryption_format(value, current_path)
+            elif isinstance(value, str) and value.startswith("encrypted:"):
+                # 验证加密格式
+                encrypted_value = value[10:]  # 移除 "encrypted:" 前缀
+                parts = encrypted_value.split(":")
+                if len(parts) != 4:
+                    raise ConfigValidationError(
+                        f"配置项 {current_path} 的加密格式错误，应为 'salt:iv:ciphertext:tag'"
+                    )
     
     def add_required_key(self, key: str) -> None:
         """

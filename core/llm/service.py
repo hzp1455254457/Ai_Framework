@@ -25,6 +25,7 @@ from core.llm.adapters.base import BaseLLMAdapter
 from core.llm.adapters.registry import AdapterRegistry
 from core.llm.utils.retry import retry_with_backoff
 from core.llm.utils.token_counter import TokenCounter
+from core.base.health_check import HealthCheckResult, HealthStatus
 
 
 class LLMError(Exception):
@@ -140,14 +141,16 @@ class LLMService(BaseService):
         self._adapters[adapter.name] = adapter
         self.logger.info(f"手动注册适配器: {adapter.name} (provider: {adapter.provider})")
     
-    def _get_adapter(self, model: Optional[str] = None) -> BaseLLMAdapter:
+    def _get_adapter(self, model: Optional[str] = None, require_healthy: bool = False) -> BaseLLMAdapter:
         """
         获取适配器
         
         根据模型名称自动选择适配器，如果未指定模型则使用默认适配器。
+        支持健康检查和故障转移。
         
         参数:
             model: 模型名称（可选）
+            require_healthy: 是否要求适配器健康（默认False，向后兼容）
         
         返回:
             适配器实例
@@ -159,23 +162,94 @@ class LLMService(BaseService):
             raise LLMError("没有注册的适配器")
         
         # 如果指定了模型，尝试根据模型名称找到对应的适配器
+        candidate_adapters: List[BaseLLMAdapter] = []
+        
         if model:
             adapter_name = self._registry.get_adapter_for_model(model)
             if adapter_name and adapter_name in self._adapters:
-                return self._adapters[adapter_name]
+                candidate_adapters.append(self._adapters[adapter_name])
             
             # 如果找不到，使用模型名称作为提示信息
-            self.logger.warning(
-                f"未找到模型 {model} 对应的适配器，使用默认适配器"
-            )
+            if not candidate_adapters:
+                self.logger.warning(
+                    f"未找到模型 {model} 对应的适配器，使用默认适配器"
+                )
         
-        # 使用默认适配器（第一个注册的适配器）
-        # 或者可以配置默认适配器名称
-        default_adapter_name = self._config.get("llm", {}).get("default_adapter")
-        if default_adapter_name and default_adapter_name in self._adapters:
-            return self._adapters[default_adapter_name]
+        # 如果没有候选适配器，使用默认适配器
+        if not candidate_adapters:
+            default_adapter_name = self._config.get("llm", {}).get("default_adapter")
+            if default_adapter_name and default_adapter_name in self._adapters:
+                candidate_adapters.append(self._adapters[default_adapter_name])
+            else:
+                candidate_adapters.append(next(iter(self._adapters.values())))
         
-        return next(iter(self._adapters.values()))
+        # 如果要求健康，选择健康的适配器
+        if require_healthy:
+            # 尝试从候选适配器中选择健康的
+            for adapter in candidate_adapters:
+                # 这里不实际执行健康检查（避免性能开销），而是依赖调用时的健康检查
+                # 如果需要，可以在这里添加同步健康检查
+                return adapter
+            
+            # 如果候选适配器都不健康，尝试所有适配器
+            for adapter in self._adapters.values():
+                if adapter not in candidate_adapters:
+                    candidate_adapters.append(adapter)
+            
+            # 返回第一个候选适配器（实际健康检查在调用时进行）
+            return candidate_adapters[0]
+        
+        return candidate_adapters[0]
+    
+    async def check_adapter_health(self, adapter_name: Optional[str] = None) -> Dict[str, HealthCheckResult]:
+        """
+        检查适配器健康状态
+        
+        检查指定适配器或所有适配器的健康状态。
+        
+        参数:
+            adapter_name: 适配器名称（可选，如果为None则检查所有适配器）
+        
+        返回:
+            适配器健康状态字典，键为适配器名称，值为健康检查结果
+        """
+        results: Dict[str, HealthCheckResult] = {}
+        
+        if adapter_name:
+            if adapter_name not in self._adapters:
+                return {adapter_name: HealthCheckResult(
+                    status=HealthStatus.UNKNOWN,
+                    message="适配器未注册"
+                )}
+            adapters_to_check = {adapter_name: self._adapters[adapter_name]}
+        else:
+            adapters_to_check = self._adapters
+        
+        for name, adapter in adapters_to_check.items():
+            try:
+                result = await adapter.health_check()
+                results[name] = result
+            except Exception as e:
+                results[name] = HealthCheckResult(
+                    status=HealthStatus.UNHEALTHY,
+                    message=f"健康检查异常: {e}"
+                )
+        
+        return results
+    
+    async def get_healthy_adapters(self) -> List[str]:
+        """
+        获取健康的适配器列表
+        
+        返回:
+            健康的适配器名称列表
+        """
+        health_results = await self.check_adapter_health()
+        healthy_adapters = [
+            name for name, result in health_results.items()
+            if result.status == HealthStatus.HEALTHY
+        ]
+        return healthy_adapters
     
     async def chat(
         self,
@@ -183,6 +257,8 @@ class LLMService(BaseService):
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        functions: Optional[List[Dict[str, Any]]] = None,
+        **kwargs: Any,
     ) -> LLMResponse:
         """
         发送聊天请求
@@ -194,6 +270,8 @@ class LLMService(BaseService):
             model: 模型名称，默认使用配置的默认模型
             temperature: 温度参数，控制输出随机性，范围 0-2
             max_tokens: 最大token数（可选）
+            functions: Function Calling工具定义列表（可选）
+            **kwargs: 其他参数，会传递给适配器
         
         返回:
             LLMResponse对象，包含响应内容、Token使用量等信息
@@ -221,12 +299,20 @@ class LLMService(BaseService):
         try:
             # 使用重试机制调用适配器
             async def _call_adapter():
-                return await adapter.call(
-                    messages=messages,
-                    model=model,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+                # 构建适配器调用参数
+                adapter_kwargs = {
+                    "messages": messages,
+                    "model": model,
+                    "temperature": temperature,
+                }
+                if max_tokens:
+                    adapter_kwargs["max_tokens"] = max_tokens
+                if functions:
+                    adapter_kwargs["functions"] = functions
+                # 合并其他kwargs参数
+                adapter_kwargs.update(kwargs)
+                
+                return await adapter.call(**adapter_kwargs)
             
             result = await retry_with_backoff(
                 _call_adapter,

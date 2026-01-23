@@ -7,9 +7,13 @@
 from .service import BaseService
 from .adapter import BaseAdapter
 from .plugin import BasePlugin
+from .health_check import HealthStatus, HealthCheckResult, BaseHealthCheck
 
 __all__ = [
     "BaseService",
     "BaseAdapter",
     "BasePlugin",
+    "HealthStatus",
+    "HealthCheckResult",
+    "BaseHealthCheck",
 ]

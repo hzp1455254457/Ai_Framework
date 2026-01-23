@@ -16,6 +16,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, AsyncIterator
+from core.base.health_check import HealthStatus, HealthCheckResult
 
 
 class AdapterError(Exception):
@@ -231,6 +232,51 @@ class BaseAdapter(ABC):
             True表示已初始化，False表示未初始化
         """
         return self._initialized
+    
+    async def health_check(self) -> HealthCheckResult:
+        """
+        执行健康检查
+        
+        检查适配器是否可用。默认实现检查适配器是否已初始化。
+        子类可以重写此方法实现具体的健康检查逻辑（如发送轻量级API请求）。
+        
+        返回:
+            健康检查结果
+            
+        示例:
+            >>> result = await adapter.health_check()
+            >>> print(result.status)
+            HealthStatus.HEALTHY
+        """
+        from core.base.health_check import HealthStatus, HealthCheckResult
+        
+        if not self._initialized:
+            return HealthCheckResult(
+                status=HealthStatus.UNHEALTHY,
+                message="适配器未初始化"
+            )
+        
+        # 默认实现：如果已初始化，认为健康
+        # 子类可以重写此方法实现具体的健康检查逻辑
+        return HealthCheckResult(
+            status=HealthStatus.HEALTHY,
+            message="适配器已初始化"
+        )
+    
+    @property
+    async def is_healthy(self) -> bool:
+        """
+        检查适配器是否健康（便捷属性）
+        
+        返回:
+            True表示健康，False表示不健康
+            
+        示例:
+            >>> if await adapter.is_healthy:
+            ...     print("适配器可用")
+        """
+        result = await self.health_check()
+        return result.status == HealthStatus.HEALTHY
     
     async def __aenter__(self):
         """异步上下文管理器入口"""

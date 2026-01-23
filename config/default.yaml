@@ -2,12 +2,19 @@
 
 # LLM服务配置
 llm:
-  api_key: ""  # API密钥，通过环境变量或环境配置文件设置
+  api_key: ""  # API密钥，通过环境变量或环境配置文件设置（支持加密存储，使用 encrypted: 前缀）
   timeout: 30  # 请求超时时间（秒）
   max_retries: 3  # 最大重试次数
   default_model: "qwen-turbo"  # 默认模型
   default_adapter: ""  # 默认适配器名称（可选，不设置则自动选择）
   auto_discover_adapters: true  # 是否自动发现和注册适配器
+  
+  # 健康检查配置
+  health_check:
+    enabled: true  # 是否启用健康检查
+    timeout: 5.0  # 健康检查超时时间（秒）
+    interval: 60  # 健康检查间隔（秒，0表示不自动检查）
+    failover_enabled: true  # 是否启用故障转移（自动选择健康适配器）
   
   # 适配器配置（每个适配器的独立配置）
   adapters:
@@ -52,6 +59,17 @@ log:
   file: "logs/app.log"  # 日志文件路径（可选）
   max_bytes: 10485760  # 日志文件最大大小（10MB）
   backup_count: 5  # 备份文件数量
+  
+  # 数据脱敏配置
+  masking:
+    enabled: true  # 是否启用数据脱敏（生产环境建议启用）
+    mode: "partial"  # 脱敏模式：partial（部分隐藏）/full（完全隐藏）/hash（哈希）
+    keep_prefix: 3  # 部分隐藏时保留的前缀长度
+    keep_suffix: 2  # 部分隐藏时保留的后缀长度
+    custom_rules: []  # 自定义脱敏规则（可选）
+      # 示例：
+      # - name: "custom_id"
+      #   pattern: "ID:\\d+"
 
 # 存储配置
 storage:
@@ -65,6 +83,21 @@ agent:
   enable_long_term_memory: false  # 是否启用长期记忆
   enable_planner: false  # 是否启用任务规划器
   max_messages: null  # 最大消息数（null表示无限制）
+  
+  # 互联网访问工具配置
+  web_tools:
+    enabled: true  # 是否启用互联网工具（默认true）
+    web_search:
+      enabled: true  # 是否启用web_search工具
+      search_engine: "duckduckgo"  # 搜索引擎类型：duckduckgo/google/bing
+      api_key: ""  # API密钥（Google/Bing需要，DuckDuckGo不需要）
+      timeout: 10.0  # 请求超时时间（秒）
+      max_retries: 2  # 最大重试次数
+    fetch_webpage:
+      enabled: true  # 是否启用fetch_webpage工具
+      timeout: 10.0  # 请求超时时间（秒）
+      max_retries: 2  # 最大重试次数
+      max_length: 10000  # 最大返回文本长度（字符数）
 
 # 规划器配置
 planner:
@@ -81,3 +114,32 @@ vector_db:
 # 多Agent协作配置
 collaboration:
   strategy: "round_robin"  # 任务分配策略：round_robin/load_balancing/specialization
+
+# Vision服务配置
+vision:
+  default_adapter: ""  # 默认适配器名称（可选，不设置则使用第一个注册的适配器）
+  auto_discover_adapters: false  # 是否自动发现和注册适配器（当前未实现）
+  
+  # 健康检查配置
+  health_check:
+    enabled: true  # 是否启用健康检查
+    timeout: 5.0  # 健康检查超时时间（秒）
+    interval: 60  # 健康检查间隔（秒，0表示不自动检查）
+    failover_enabled: true  # 是否启用故障转移（自动选择健康适配器）
+  
+  # 适配器配置（每个适配器的独立配置）
+  adapters:
+    dalle-adapter:
+      api_key: ""  # DALL-E API密钥（OpenAI API密钥）
+      base_url: "https://api.openai.com/v1"  # 可选，默认OpenAI API端点
+      default_model: "dall-e-3"  # 默认模型（dall-e-2 或 dall-e-3）
+    stable-diffusion-adapter:
+      api_key: ""  # Stable Diffusion API密钥（支持加密存储）
+      base_url: ""  # API端点URL
+
+# 加密配置（可选）
+# encryption_key: ""  # 加密主密钥（建议通过环境变量 ENCRYPTION_KEY 设置）
+# 注意：生产环境必须设置加密主密钥，用于加密存储API密钥等敏感信息
+# 加密格式：在配置值前添加 "encrypted:" 前缀，例如：
+#   api_key: "encrypted:salt:iv:ciphertext:tag"
+# 使用 ConfigManager.encrypt_value() 方法生成加密值

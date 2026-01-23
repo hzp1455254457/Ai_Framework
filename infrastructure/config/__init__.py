@@ -1,12 +1,13 @@
 """
 配置管理模块
 
-提供统一的配置管理能力，支持多环境配置、配置热重载等功能。
+提供统一的配置管理能力，支持多环境配置、配置热重载、API密钥加密存储等功能。
 """
 
 from .manager import ConfigManager
 from .loader import ConfigLoader
 from .validator import ConfigValidator, ConfigError, ConfigValidationError
+from .encryption import EncryptionService, EncryptionError
 
 __all__ = [
     "ConfigManager",
@@ -14,4 +15,6 @@ __all__ = [
     "ConfigValidator",
     "ConfigError",
     "ConfigValidationError",
+    "EncryptionService",
+    "EncryptionError",
 ]

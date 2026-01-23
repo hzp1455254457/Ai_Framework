@@ -28,6 +28,11 @@ try:
 except ImportError:
     load_dotenv = None
 
+try:
+    from .encryption import EncryptionService
+except ImportError:
+    EncryptionService = None
+
 
 class ConfigLoader:
     """
@@ -139,6 +144,9 @@ class ConfigLoader:
         
         例如：AI_FRAMEWORK_LLM_API_KEY -> {"llm": {"api_key": "value"}}
         
+        注意：加密配置项（`encrypted:` 前缀）不会被自动解密，
+        解密操作由 ConfigManager 在 get() 方法中处理。
+        
         参数:
             prefix: 环境变量前缀（可选）
         
@@ -169,7 +177,7 @@ class ConfigLoader:
                     current[k] = {}
                 current = current[k]
             
-            # 设置值
+            # 设置值（保持加密格式，不解密）
             current[keys[-1]] = value
         
         return config

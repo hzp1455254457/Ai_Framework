@@ -23,7 +23,8 @@ from typing import Any, Dict, List, Optional
 
 from core.base.service import BaseService
 from core.llm.service import LLMService
-from core.agent.tools import ToolRegistry, ToolError
+from core.agent.tools.tools import ToolRegistry, ToolError
+from core.agent.tools.web_tools_registry import register_web_tools
 from core.agent.memory import ShortTermMemory, LongTermMemory
 from core.agent.planner import Planner, LLMPlanner, Plan, PlannerError
 
@@ -113,6 +114,18 @@ class AgentEngine(BaseService):
                 self._planner = LLMPlanner(self._llm_service, self._config)
                 self.logger.info("规划器已启用")
             
+            # 注册互联网访问工具（如果启用）
+            web_tools_config = self._config.get("agent", {}).get("web_tools", {})
+            if web_tools_config.get("enabled", True):
+                try:
+                    register_web_tools(self._tool_registry, self._config)
+                    registered_tools = self._tool_registry.list_tools()
+                    web_tools = [t for t in registered_tools if t in ("web_search", "fetch_webpage")]
+                    if web_tools:
+                        self.logger.info(f"已注册互联网工具: {', '.join(web_tools)}")
+                except Exception as e:
+                    self.logger.error(f"注册互联网工具失败: {e}", exc_info=True)
+            
             self.logger.info("Agent引擎初始化完成")
         except Exception as e:
             self.logger.error(f"Agent引擎初始化失败: {e}", exc_info=True)
@@ -195,8 +208,16 @@ class AgentEngine(BaseService):
                 
                 # 获取工具schema（如果有工具）
                 tools_schema = None
-                if self._tool_registry.list_tools():
+                registered_tools = self._tool_registry.list_tools()
+                self.logger.info(f"检查工具注册情况: 已注册工具={registered_tools}, 数量={len(registered_tools)}")
+                
+                if registered_tools:
                     tools_schema = self._tool_registry.get_function_schemas()
+                    self.logger.info(f"获取工具schema: 数量={len(tools_schema) if tools_schema else 0}")
+                    if tools_schema:
+                        self.logger.debug(f"工具schema详情: {tools_schema}")
+                else:
+                    self.logger.warning("没有已注册的工具，无法进行工具调用")
                 
                 # 调用LLM
                 llm_kwargs = {
@@ -205,12 +226,19 @@ class AgentEngine(BaseService):
                 }
                 if tools_schema:
                     llm_kwargs["functions"] = tools_schema
+                    self.logger.info(f"传递工具schema给LLM: functions参数已设置, 工具数量={len(tools_schema)}")
+                else:
+                    self.logger.warning("未传递工具schema给LLM，LLM无法调用工具")
+                
+                self.logger.debug(f"LLM调用参数: model={kwargs.get('model', self._llm_service._default_model)}, messages_count={len(messages)}, has_functions={bool(tools_schema)}")
                 
                 response = await self._llm_service.chat(
                     messages=messages,
                     model=kwargs.get("model", self._llm_service._default_model),
                     **llm_kwargs,
                 )
+                
+                self.logger.info(f"LLM响应: content_length={len(response.content)}, metadata={response.metadata}")
                 
                 # 检查是否有工具调用
                 metadata = response.metadata or {}

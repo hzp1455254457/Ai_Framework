@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "Ai_Framework",
+			"path": "../.."
+		},
+		{
+			"name": "Ai_Web",
+			"path": "../../../Ai_Web"
+		}
+	],
+	"settings": {}
+}

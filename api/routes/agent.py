@@ -4,7 +4,9 @@ Agent路由模块
 提供Agent服务相关的API接口。
 """
 
+import logging
 from typing import Dict, Any, List
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from api.models.request import (
     AgentTaskRequest,
@@ -23,8 +25,53 @@ from api.dependencies import get_agent_engine, get_agent_orchestrator
 from core.agent.engine import AgentEngine, AgentError
 from core.agent.tools import Tool, ToolError
 from core.agent.collaboration import AgentOrchestrator, DistributionStrategy, CollaborationError
+from fastapi import Request
 
 router = APIRouter()
+
+# 设置日志目录
+LOG_DIR = Path(__file__).parent.parent.parent / "logs"
+try:
+    LOG_DIR.mkdir(exist_ok=True)
+except Exception as e:
+    print(f"警告: 无法创建日志目录 {LOG_DIR}: {e}")
+
+# 创建专用日志记录器
+agent_logger = logging.getLogger("agent_api")
+agent_logger.setLevel(logging.DEBUG)
+
+# 避免重复添加处理器
+if not agent_logger.handlers:
+    # 文件处理器
+    try:
+        log_file = LOG_DIR / "agent_api.log"
+        file_handler = logging.FileHandler(log_file, encoding="utf-8", mode="a")
+        file_handler.setLevel(logging.DEBUG)
+        
+        # 控制台处理器
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        
+        # 格式化器
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(formatter)
+        console_handler.setFormatter(formatter)
+        
+        # 添加处理器
+        agent_logger.addHandler(file_handler)
+        agent_logger.addHandler(console_handler)
+        
+        # 测试日志
+        agent_logger.info(f"Agent API日志系统初始化完成，日志文件: {log_file.absolute()}")
+    except Exception as e:
+        print(f"警告: 无法初始化日志系统: {e}")
+        # 至少添加控制台处理器
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        agent_logger.addHandler(console_handler)
 
 
 @router.post("/task", response_model=AgentTaskResponse)
@@ -48,6 +95,8 @@ async def run_task(
         HTTPException: 请求失败时抛出
     """
     try:
+        agent_logger.info(f"收到Agent任务请求: task={request.task[:100]}..., conversation_id={request.conversation_id}, model={request.model}")
+        
         # 调用Agent引擎执行任务
         result = await agent_engine.run_task(
             task=request.task,
@@ -58,13 +107,18 @@ async def run_task(
             context=request.context,
         )
         
+        agent_logger.info(f"Agent任务执行完成: content_length={len(result.get('content', ''))}, tool_calls_count={len(result.get('tool_calls', []))}, iterations={result.get('iterations', 1)}")
+        agent_logger.debug(f"Agent任务结果详情: {result}")
+        
         # 构建响应
-        return AgentTaskResponse(
+        response = AgentTaskResponse(
             content=result["content"],
             tool_calls=result.get("tool_calls", []),
             iterations=result.get("iterations", 1),
             metadata=result.get("metadata", {}),
         )
+        
+        return response
     
     except AgentError as e:
         raise HTTPException(
@@ -168,20 +222,77 @@ async def list_tools(
         工具列表，包含工具名称和schema
     """
     try:
-        tools = agent_engine.get_tools()
-        tool_schemas = agent_engine.get_tool_schemas()
+        agent_logger.info("收到工具列表请求")
         
-        return {
-            "tools": tools,
-            "schemas": tool_schemas,
-            "count": len(tools),
+        tool_names = agent_engine.get_tools()  # List[str]
+        agent_logger.debug(f"获取工具名称列表: {tool_names}, 数量: {len(tool_names)}")
+        
+        tool_schemas = agent_engine.get_tool_schemas()  # List[Dict[str, Any]]
+        agent_logger.debug(f"获取工具schema列表: 数量={len(tool_schemas)}")
+        
+        # 将工具列表转换为字典格式，方便前端使用
+        # 格式: {tool_name: {name, description, ...}}
+        tools_dict = {}
+        for schema in tool_schemas:
+            tool_name = schema.get("function", {}).get("name", "")
+            if tool_name:
+                tools_dict[tool_name] = {
+                    "name": tool_name,
+                    "description": schema.get("function", {}).get("description", ""),
+                    "parameters": schema.get("function", {}).get("parameters", {}),
+                }
+        
+        # 如果schema中没有但工具名称列表中有，也添加进去
+        for tool_name in tool_names:
+            if tool_name not in tools_dict:
+                tools_dict[tool_name] = {
+                    "name": tool_name,
+                    "description": "工具描述不可用",
+                    "parameters": {},
+                }
+        
+        result = {
+            "tools": tools_dict,  # 转换为字典格式
+            "schemas": tool_schemas,  # 保持schema列表格式
+            "count": len(tool_names),
         }
+        
+        agent_logger.info(f"工具列表响应: count={result['count']}, tools={list(tools_dict.keys())}")
+        agent_logger.debug(f"工具列表详细数据: {result}")
+        
+        return result
     
     except Exception as e:
+        agent_logger.error(f"获取工具列表失败: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"获取工具列表失败: {str(e)}",
         ) from e
+
+
+@router.post("/logs/frontend")
+async def save_frontend_logs(request: Request):
+    """
+    保存前端日志
+    
+    接收前端发送的日志并保存到文件。
+    """
+    try:
+        data = await request.json()
+        logs = data.get("logs", [])
+        
+        # 保存到日志文件
+        log_file = LOG_DIR / "frontend.log"
+        with open(log_file, "a", encoding="utf-8") as f:
+            for log_entry in logs:
+                f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+        
+        agent_logger.debug(f"收到前端日志: {len(logs)} 条")
+        
+        return {"success": True, "saved": len(logs)}
+    except Exception as e:
+        agent_logger.error(f"保存前端日志失败: {str(e)}", exc_info=True)
+        return {"success": False, "error": str(e)}
 
 
 @router.post("/memory/search", response_model=VectorSearchResponse)

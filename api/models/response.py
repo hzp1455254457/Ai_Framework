@@ -65,6 +65,25 @@ class HealthResponse(BaseModel):
     models: list = Field(default_factory=list, description="支持的模型列表")
 
 
+class AdapterHealthStatus(BaseModel):
+    """适配器健康状态模型"""
+    
+    name: str = Field(..., description="适配器名称")
+    status: str = Field(..., description="健康状态：healthy/unhealthy/unknown")
+    message: Optional[str] = Field(None, description="健康检查消息")
+    timestamp: str = Field(..., description="检查时间戳（ISO格式）")
+    details: Optional[Dict[str, Any]] = Field(None, description="详细信息")
+
+
+class AdapterHealthResponse(BaseModel):
+    """适配器健康状态响应模型"""
+    
+    adapters: Dict[str, AdapterHealthStatus] = Field(..., description="适配器健康状态字典")
+    healthy_count: int = Field(..., description="健康适配器数量")
+    unhealthy_count: int = Field(..., description="不健康适配器数量")
+    unknown_count: int = Field(..., description="未知状态适配器数量")
+
+
 class AgentTaskResponse(BaseModel):
     """Agent任务响应模型"""
     
@@ -149,6 +168,71 @@ class MultiAgentTaskResponse(BaseModel):
                 "content": "聚合后的结果",
                 "agent_results": [],
                 "strategy": "round_robin",
+                "metadata": {}
+            }
+        }
+
+
+class VisionGenerateResponse(BaseModel):
+    """Vision图像生成响应模型"""
+    
+    images: List[str] = Field(..., description="生成的图像列表（URL或base64数据）")
+    model: str = Field(..., description="使用的模型名称")
+    count: int = Field(..., description="生成的图像数量")
+    created_at: str = Field(..., description="创建时间（ISO格式）")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="其他元数据")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "images": ["https://example.com/generated-image.jpg"],
+                "model": "dall-e-3",
+                "count": 1,
+                "created_at": "2026-01-22T10:00:00",
+                "metadata": {}
+            }
+        }
+
+
+class VisionAnalyzeResponse(BaseModel):
+    """Vision图像分析响应模型"""
+    
+    model: str = Field(..., description="使用的模型名称")
+    text: Optional[str] = Field(None, description="OCR识别的文本")
+    objects: List[Dict[str, Any]] = Field(default_factory=list, description="识别的物体列表")
+    description: Optional[str] = Field(None, description="图像描述")
+    created_at: str = Field(..., description="创建时间（ISO格式）")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="其他元数据")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "model": "gpt-4-vision",
+                "text": "识别到的文本内容",
+                "objects": [],
+                "description": "图像描述内容",
+                "created_at": "2026-01-22T10:00:00",
+                "metadata": {}
+            }
+        }
+
+
+class VisionEditResponse(BaseModel):
+    """Vision图像编辑响应模型"""
+    
+    images: List[str] = Field(..., description="编辑后的图像列表（URL或base64数据）")
+    model: str = Field(..., description="使用的模型名称")
+    count: int = Field(..., description="编辑后的图像数量")
+    created_at: str = Field(..., description="创建时间（ISO格式）")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="其他元数据")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "images": ["https://example.com/edited-image.jpg"],
+                "model": "dall-e-2",
+                "count": 1,
+                "created_at": "2026-01-22T10:00:00",
                 "metadata": {}
             }
         }

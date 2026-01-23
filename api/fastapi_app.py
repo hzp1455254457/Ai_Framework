@@ -7,6 +7,7 @@ FastAPI应用主文件
 from fastapi import FastAPI
 from api.middleware import setup_middleware
 from api.routes import router
+from infrastructure.config.manager import ConfigManager
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -18,8 +19,15 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# 设置中间件
-setup_middleware(app)
+# 加载配置（用于中间件的数据脱敏配置）
+try:
+    config_manager = ConfigManager.load()
+    config = config_manager.config
+except Exception:
+    config = None
+
+# 设置中间件（传入配置以支持数据脱敏）
+setup_middleware(app, config=config)
 
 # 注册路由
 app.include_router(router, prefix="/api/v1")

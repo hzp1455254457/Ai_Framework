@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 from .loader import ConfigLoader
 from .validator import ConfigValidator, ConfigError, ConfigValidationError
+from .encryption import EncryptionService, EncryptionError
 
 
 class ConfigManager:
@@ -35,6 +36,7 @@ class ConfigManager:
         - 支持环境变量覆盖
         - 支持配置热重载
         - 配置验证
+        - 支持敏感配置项加密存储（使用 `encrypted:` 前缀）
     
     示例：
         >>> config = ConfigManager.load(env="dev")
@@ -47,6 +49,7 @@ class ConfigManager:
         _config_dir: 配置目录路径
         _loader: 配置加载器
         _validator: 配置验证器
+        _encryption_service: 加密服务（可选）
     """
     
     def __init__(
@@ -71,6 +74,16 @@ class ConfigManager:
         self._config_dir: Path = Path(config_dir) if config_dir else Path("config")
         self._loader: ConfigLoader = ConfigLoader()
         self._validator: ConfigValidator = ConfigValidator()
+        
+        # 初始化加密服务（如果配置了主密钥）
+        self._encryption_service: Optional[EncryptionService] = None
+        encryption_key = config.get("encryption_key") or os.getenv("ENCRYPTION_KEY")
+        if encryption_key:
+            try:
+                self._encryption_service = EncryptionService(master_key=encryption_key)
+            except EncryptionError:
+                # 如果加密服务初始化失败，继续运行但不支持加密（向后兼容）
+                pass
     
     @classmethod
     def load(
@@ -155,6 +168,7 @@ class ConfigManager:
         获取配置值
         
         支持点号分隔的嵌套键访问（如 "llm.api_key"）。
+        如果配置值是加密格式（`encrypted:` 前缀），会自动解密。
         
         参数:
             key: 配置键，支持点号分隔（如 "llm.api_key"）
@@ -162,6 +176,7 @@ class ConfigManager:
         
         返回:
             配置值，如果键不存在返回default
+            如果配置值是加密格式，返回解密后的值
         
         示例:
             >>> api_key = config.get("llm.api_key")
@@ -176,20 +191,39 @@ class ConfigManager:
             else:
                 return default
         
+        # 如果值是字符串且是加密格式，自动解密
+        if isinstance(value, str) and value.startswith("encrypted:"):
+            encrypted_value = value[10:]  # 移除 "encrypted:" 前缀
+            if self._encryption_service:
+                try:
+                    return self._encryption_service.decrypt(encrypted_value)
+                except EncryptionError:
+                    # 解密失败，返回原始值（向后兼容）
+                    return value
+            else:
+                # 加密服务未初始化，返回原始值（向后兼容）
+                return value
+        
         return value
     
-    def set(self, key: str, value: Any) -> None:
+    def set(self, key: str, value: Any, encrypt: bool = False) -> None:
         """
         设置配置值
         
         支持点号分隔的嵌套键设置。
+        如果指定 encrypt=True，会将值加密后存储（添加 `encrypted:` 前缀）。
         
         参数:
             key: 配置键，支持点号分隔
             value: 配置值
+            encrypt: 是否加密存储（默认False）
+        
+        异常:
+            EncryptionError: 加密失败时抛出（如果encrypt=True但加密服务未初始化）
         
         示例:
             >>> config.set("llm.timeout", 60)
+            >>> config.set("llm.api_key", "sk-...", encrypt=True)
         """
         keys = key.split(".")
         config = self._config
@@ -202,8 +236,57 @@ class ConfigManager:
                 config[k] = {}
             config = config[k]
         
-        # 设置值
-        config[keys[-1]] = value
+        # 如果需要加密
+        if encrypt:
+            if not self._encryption_service:
+                raise EncryptionError("加密服务未初始化，无法加密配置值")
+            if not isinstance(value, str):
+                raise ValueError("只能加密字符串类型的配置值")
+            encrypted_value = self._encryption_service.encrypt(value)
+            config[keys[-1]] = f"encrypted:{encrypted_value}"
+        else:
+            # 设置值
+            config[keys[-1]] = value
+    
+    def encrypt_value(self, value: str) -> str:
+        """
+        加密配置值
+        
+        参数:
+            value: 要加密的明文值
+        
+        返回:
+            加密后的字符串（带 `encrypted:` 前缀）
+        
+        异常:
+            EncryptionError: 加密失败时抛出
+        """
+        if not self._encryption_service:
+            raise EncryptionError("加密服务未初始化，无法加密配置值")
+        encrypted = self._encryption_service.encrypt(value)
+        return f"encrypted:{encrypted}"
+    
+    def decrypt_value(self, encrypted_value: str) -> str:
+        """
+        解密配置值
+        
+        参数:
+            encrypted_value: 加密的配置值（带或不带 `encrypted:` 前缀）
+        
+        返回:
+            解密后的明文值
+        
+        异常:
+            EncryptionError: 解密失败时抛出
+        """
+        if not self._encryption_service:
+            raise EncryptionError("加密服务未初始化，无法解密配置值")
+        
+        # 移除前缀（如果存在）
+        if encrypted_value.startswith("encrypted:"):
+            encrypted_value = encrypted_value[10:]
+        
+        return self._encryption_service.decrypt(encrypted_value)
     
     async def reload(self) -> None:
         """

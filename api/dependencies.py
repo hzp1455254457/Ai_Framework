@@ -10,6 +10,7 @@ from infrastructure.config.manager import ConfigManager
 from core.llm.service import LLMService
 from core.agent.engine import AgentEngine
 from core.agent.collaboration import AgentOrchestrator
+from core.vision.service import VisionService
 
 
 # 全局服务实例缓存
@@ -53,7 +54,7 @@ async def get_llm_service(
     
     if cache_key not in _service_cache:
         try:
-            config = config_manager.get_all()
+            config = config_manager.config
             service = LLMService(config)
             await service.initialize()
             _service_cache[cache_key] = service
@@ -85,7 +86,7 @@ async def get_agent_engine(
     
     if cache_key not in _service_cache:
         try:
-            config = config_manager.get_all()
+            config = config_manager.config
             engine = AgentEngine(config)
             await engine.initialize()
             _service_cache[cache_key] = engine
@@ -117,7 +118,7 @@ async def get_agent_orchestrator(
     
     if cache_key not in _service_cache:
         try:
-            config = config_manager.get_all()
+            config = config_manager.config
             orchestrator = AgentOrchestrator(config)
             await orchestrator.initialize()
             _service_cache[cache_key] = orchestrator
@@ -125,6 +126,60 @@ async def get_agent_orchestrator(
             raise HTTPException(
                 status_code=500,
                 detail=f"Agent编排器初始化失败: {str(e)}"
+            ) from e
+    
+    return _service_cache[cache_key]
+
+
+async def get_vision_service(
+    config_manager: ConfigManager = Depends(get_config_manager),
+) -> VisionService:
+    """
+    获取Vision服务实例
+    
+    参数:
+        config_manager: 配置管理器实例
+    
+    返回:
+        Vision服务实例
+    
+    异常:
+        HTTPException: 服务初始化失败时抛出
+    """
+    cache_key = "vision_service"
+    
+    if cache_key not in _service_cache:
+        try:
+            config = config_manager.config
+            service = VisionService(config)
+            await service.initialize()
+            
+            # 注册Vision适配器
+            vision_config = config.get("vision", {})
+            adapters_config = vision_config.get("adapters", {})
+            
+            # 注册DALL-E适配器
+            if "dalle-adapter" in adapters_config:
+                dalle_config = adapters_config["dalle-adapter"]
+                api_key = dalle_config.get("api_key", "")
+                
+                if api_key:
+                    try:
+                        from core.vision.adapters.dalle_adapter import DALLEAdapter
+                        dalle_adapter = DALLEAdapter(dalle_config)
+                        await dalle_adapter.initialize(dalle_config)
+                        service.register_adapter(dalle_adapter)
+                    except Exception as e:
+                        # 适配器注册失败不影响服务启动，只记录日志
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"DALL-E适配器注册失败: {e}")
+            
+            _service_cache[cache_key] = service
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Vision服务初始化失败: {str(e)}"
             ) from e
     
     return _service_cache[cache_key]

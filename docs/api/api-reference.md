@@ -25,6 +25,10 @@
   - [向量语义搜索接口](#4-向量语义搜索接口)
   - [多Agent协作任务接口](#5-多agent协作任务接口)
   - [多Agent协作状态接口](#6-多agent协作状态接口)
+- [Vision API](#vision-api)
+  - [图像生成接口](#1-图像生成接口)
+  - [图像分析接口](#2-图像分析接口)
+  - [图像编辑接口](#3-图像编辑接口)
 - [Health API](#health-api)
   - [健康检查接口](#1-健康检查接口)
 - [错误处理](#错误处理)
@@ -702,6 +706,269 @@ async with httpx.AsyncClient() as client:
 ```bash
 # 使用curl
 curl "http://localhost:8000/api/v1/agent/collaboration/status"
+```
+
+---
+
+## Vision API
+
+Vision API提供图像生成、分析和编辑功能。
+
+**Base Path**: `/api/v1/vision`
+
+### 1. 图像生成接口
+
+根据文本提示词生成图像。
+
+**端点**: `POST /api/v1/vision/generate`
+
+**请求体**:
+```json
+{
+  "prompt": "A beautiful sunset over the ocean",
+  "size": "1024x1024",
+  "n": 1,
+  "quality": "standard",
+  "style": null,
+  "adapter_name": null
+}
+```
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| prompt | String | 是 | - | 文本提示词，描述要生成的图像 |
+| size | String | 否 | "1024x1024" | 图像尺寸：256x256/512x512/1024x1024/1024x1792/1792x1024 |
+| n | Integer | 否 | 1 | 生成图像数量（1-10） |
+| quality | String | 否 | "standard" | 图像质量：standard/hd |
+| style | String | 否 | null | 图像风格（可选） |
+| adapter_name | String | 否 | null | 适配器名称（可选，默认使用配置的默认适配器） |
+
+**响应**:
+```json
+{
+  "images": ["https://example.com/generated-image.jpg"],
+  "model": "dall-e-3",
+  "count": 1,
+  "created_at": "2026-01-22T10:00:00",
+  "metadata": {}
+}
+```
+
+**响应字段**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| images | Array[String] | 生成的图像列表（URL或base64数据） |
+| model | String | 使用的模型名称 |
+| count | Integer | 生成的图像数量 |
+| created_at | String | 创建时间（ISO格式） |
+| metadata | Object | 其他元数据 |
+
+**状态码**:
+- `200 OK`: 请求成功
+- `400 Bad Request`: 请求参数错误（如提示词为空、图像数量超出范围）
+- `500 Internal Server Error`: 服务器内部错误（如适配器不可用、API调用失败）
+
+**示例**:
+
+```bash
+# 使用curl
+curl -X POST "http://localhost:8000/api/v1/vision/generate" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "A beautiful sunset over the ocean",
+    "size": "1024x1024",
+    "n": 1
+  }'
+```
+
+```python
+# 使用Python
+import httpx
+
+async with httpx.AsyncClient() as client:
+    response = await client.post(
+        "http://localhost:8000/api/v1/vision/generate",
+        json={
+            "prompt": "A beautiful sunset over the ocean",
+            "size": "1024x1024",
+            "n": 1,
+            "quality": "standard"
+        }
+    )
+    result = response.json()
+    print(f"生成了 {result['count']} 张图像")
+    print(f"图像URL: {result['images']}")
+```
+
+### 2. 图像分析接口
+
+分析图像内容（OCR、物体识别、图像理解等）。
+
+**端点**: `POST /api/v1/vision/analyze`
+
+**请求体**:
+```json
+{
+  "image": "https://example.com/image.jpg",
+  "analyze_type": "all",
+  "options": {},
+  "adapter_name": null
+}
+```
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| image | String | 是 | - | 图像数据（URL、base64或文件路径） |
+| analyze_type | String | 否 | "all" | 分析类型：ocr/object_detection/image_understanding/all |
+| options | Object | 否 | {} | 分析选项（可选） |
+| adapter_name | String | 否 | null | 适配器名称（可选） |
+
+**响应**:
+```json
+{
+  "model": "gpt-4-vision",
+  "text": "识别到的文本内容",
+  "objects": [],
+  "description": "图像描述内容",
+  "created_at": "2026-01-22T10:00:00",
+  "metadata": {}
+}
+```
+
+**响应字段**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| model | String | 使用的模型名称 |
+| text | String | OCR识别的文本（如果有） |
+| objects | Array[Object] | 识别的物体列表（如果有） |
+| description | String | 图像描述（如果有） |
+| created_at | String | 创建时间（ISO格式） |
+| metadata | Object | 其他元数据 |
+
+**状态码**:
+- `200 OK`: 请求成功
+- `400 Bad Request`: 请求参数错误（如图像数据为空）
+- `500 Internal Server Error`: 服务器内部错误
+
+**示例**:
+
+```bash
+# 使用curl
+curl -X POST "http://localhost:8000/api/v1/vision/analyze" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image": "https://example.com/image.jpg",
+    "analyze_type": "all"
+  }'
+```
+
+```python
+# 使用Python
+import httpx
+
+async with httpx.AsyncClient() as client:
+    response = await client.post(
+        "http://localhost:8000/api/v1/vision/analyze",
+        json={
+            "image": "https://example.com/image.jpg",
+            "analyze_type": "ocr"
+        }
+    )
+    result = response.json()
+    print(f"识别文本: {result['text']}")
+    print(f"图像描述: {result['description']}")
+```
+
+### 3. 图像编辑接口
+
+根据编辑指令修改图像。
+
+**端点**: `POST /api/v1/vision/edit`
+
+**请求体**:
+```json
+{
+  "image": "https://example.com/image.jpg",
+  "prompt": "Add a rainbow in the sky",
+  "mask": null,
+  "size": null,
+  "n": 1,
+  "adapter_name": null
+}
+```
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| image | String | 是 | - | 原始图像数据（URL、base64或文件路径） |
+| prompt | String | 是 | - | 编辑提示词，描述要进行的编辑 |
+| mask | String | 否 | null | 遮罩图像（可选，指定编辑区域） |
+| size | String | 否 | null | 输出图像尺寸（可选） |
+| n | Integer | 否 | 1 | 生成图像数量（1-10） |
+| adapter_name | String | 否 | null | 适配器名称（可选） |
+
+**响应**:
+```json
+{
+  "images": ["https://example.com/edited-image.jpg"],
+  "model": "dall-e-2",
+  "count": 1,
+  "created_at": "2026-01-22T10:00:00",
+  "metadata": {}
+}
+```
+
+**响应字段**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| images | Array[String] | 编辑后的图像列表（URL或base64数据） |
+| model | String | 使用的模型名称 |
+| count | Integer | 编辑后的图像数量 |
+| created_at | String | 创建时间（ISO格式） |
+| metadata | Object | 其他元数据 |
+
+**状态码**:
+- `200 OK`: 请求成功
+- `400 Bad Request`: 请求参数错误（如图像数据为空、编辑提示词为空）
+- `500 Internal Server Error`: 服务器内部错误
+
+**示例**:
+
+```bash
+# 使用curl
+curl -X POST "http://localhost:8000/api/v1/vision/edit" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image": "https://example.com/image.jpg",
+    "prompt": "Add a rainbow in the sky",
+    "n": 1
+  }'
+```
+
+```python
+# 使用Python
+import httpx
+
+async with httpx.AsyncClient() as client:
+    response = await client.post(
+        "http://localhost:8000/api/v1/vision/edit",
+        json={
+            "image": "https://example.com/image.jpg",
+            "prompt": "Add a rainbow in the sky",
+            "n": 1
+        }
+    )
+    result = response.json()
+    print(f"生成了 {result['count']} 张编辑后的图像")
+    print(f"图像URL: {result['images']}")
 ```
 
 ---

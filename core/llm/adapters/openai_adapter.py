@@ -14,10 +14,12 @@
 """
 
 import json
+import asyncio
 from typing import List, Dict, Any, Optional, AsyncIterator
-from httpx import AsyncClient, HTTPError
+from httpx import AsyncClient, HTTPError, TimeoutException
 from core.llm.adapters.base import BaseLLMAdapter
 from core.base.adapter import AdapterCallError
+from core.base.health_check import HealthStatus, HealthCheckResult
 
 
 class OpenAIAdapter(BaseLLMAdapter):
@@ -266,6 +268,60 @@ class OpenAIAdapter(BaseLLMAdapter):
             raise AdapterCallError(error_message) from e
         except Exception as e:
             raise AdapterCallError(f"OpenAI流式API调用出错: {e}") from e
+    
+    async def health_check(self) -> HealthCheckResult:
+        """
+        执行健康检查
+        
+        通过发送轻量级的API请求（模型列表）来检测适配器是否可用。
+        
+        返回:
+            健康检查结果
+        """
+        if not self._initialized or not self._client:
+            return HealthCheckResult(
+                status=HealthStatus.UNHEALTHY,
+                message="适配器未初始化"
+            )
+        
+        try:
+            # 使用较短的超时时间进行健康检查
+            timeout = 5.0
+            async with asyncio.timeout(timeout):
+                # 发送轻量级请求：获取模型列表（如果API支持）
+                # 或者发送一个最小的chat completion请求
+                response = await self._client.get(
+                    "/models",
+                    timeout=timeout,
+                )
+                response.raise_for_status()
+                
+                return HealthCheckResult(
+                    status=HealthStatus.HEALTHY,
+                    message="适配器可用",
+                    details={"provider": self.provider}
+                )
+        except TimeoutException:
+            return HealthCheckResult(
+                status=HealthStatus.UNHEALTHY,
+                message="健康检查超时"
+            )
+        except HTTPError as e:
+            # 401/403 表示API密钥问题，但适配器本身可能可用
+            if e.response and e.response.status_code in (401, 403):
+                return HealthCheckResult(
+                    status=HealthStatus.UNHEALTHY,
+                    message="API密钥无效或权限不足"
+                )
+            return HealthCheckResult(
+                status=HealthStatus.UNHEALTHY,
+                message=f"健康检查失败: {e}"
+            )
+        except Exception as e:
+            return HealthCheckResult(
+                status=HealthStatus.UNHEALTHY,
+                message=f"健康检查出错: {e}"
+            )
     
     async def cleanup(self) -> None:
         """清理适配器资源"""

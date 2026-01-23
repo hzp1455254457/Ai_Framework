@@ -134,6 +134,21 @@ class QwenAdapter(BaseLLMAdapter):
         if max_tokens:
             request_data["parameters"]["max_tokens"] = max_tokens
         
+        # 处理Function Calling工具（通义千问使用tools参数）
+        # 根据测试结果，tools应该放在parameters中，而不是input中
+        if "functions" in kwargs:
+            # 将functions转换为通义千问的tools格式
+            functions = kwargs.pop("functions")
+            if functions:
+                # 通义千问使用tools参数，必须放在parameters中（测试验证）
+                request_data["parameters"]["tools"] = functions
+                self.logger.info(f"添加工具定义到parameters.tools: 工具数量={len(functions)}")
+                self.logger.debug(f"工具定义详情: {functions}")
+            else:
+                self.logger.warning("functions参数为空，未添加工具定义")
+        else:
+            self.logger.debug("请求中未包含functions参数")
+        
         # 合并其他参数到parameters
         if kwargs:
             request_data["parameters"].update(kwargs)
@@ -192,6 +207,25 @@ class QwenAdapter(BaseLLMAdapter):
             # 构建标准响应
             usage = result.get("usage", {})
             
+            # 提取工具调用信息（如果存在）
+            metadata: Dict[str, Any] = {
+                "model": result.get("model", model),
+                "finish_reason": choices[0].get("finish_reason") if choices else None,
+            }
+            
+            # 检查是否有工具调用（通义千问可能在message中返回tool_calls）
+            if choices:
+                message = choices[0].get("message", {})
+                # 通义千问的工具调用可能在message.tool_calls中
+                if "tool_calls" in message:
+                    metadata["tool_calls"] = message.get("tool_calls", [])
+                # 或者可能在choice.tool_calls中
+                elif "tool_calls" in choices[0]:
+                    metadata["tool_calls"] = choices[0].get("tool_calls", [])
+                # 兼容function_call格式
+                if "function_call" in message:
+                    metadata["function_call"] = message.get("function_call")
+            
             return {
                 "content": content,
                 "usage": {
@@ -199,10 +233,7 @@ class QwenAdapter(BaseLLMAdapter):
                     "completion_tokens": usage.get("output_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
                 },
-                "metadata": {
-                    "model": result.get("model", model),
-                    "finish_reason": choices[0].get("finish_reason") if choices else None,
-                },
+                "metadata": metadata,
             }
             
         except HTTPError as e:

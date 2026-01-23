@@ -5,7 +5,11 @@
 """
 
 from .manager import LogManager
+from .masking import DataMaskingService, MaskingMode, mask_sensitive_data
 
 __all__ = [
     "LogManager",
+    "DataMaskingService",
+    "MaskingMode",
+    "mask_sensitive_data",
 ]
