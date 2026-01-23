@@ -28,6 +28,14 @@ from core.agent.tools.web_tools_registry import register_web_tools
 from core.agent.memory import ShortTermMemory, LongTermMemory
 from core.agent.planner import Planner, LLMPlanner, Plan, PlannerError
 
+# LangChain集成（可选）
+try:
+    from core.agent.langchain_integration import LangChainIntegration
+    LANGCHAIN_AVAILABLE = True
+except ImportError:
+    LANGCHAIN_AVAILABLE = False
+    LangChainIntegration = None
+
 
 class AgentError(Exception):
     """Agent引擎异常基类"""
@@ -72,9 +80,13 @@ class AgentEngine(BaseService):
         self._short_term_memory: Optional[ShortTermMemory] = None
         self._long_term_memory: Optional[LongTermMemory] = None
         self._planner: Optional[Planner] = None
+        self._langchain_integration: Optional[LangChainIntegration] = None
+        self._langgraph_integration: Optional[LangGraphIntegration] = None
         self._max_iterations: int = config.get("agent", {}).get("max_iterations", 10)
         self._enable_long_term_memory: bool = config.get("agent", {}).get("enable_long_term_memory", False)
         self._enable_planner: bool = config.get("agent", {}).get("enable_planner", False)
+        self._enable_langchain: bool = config.get("agent", {}).get("enable_langchain", False)
+        self._enable_langgraph: bool = config.get("agent", {}).get("enable_langgraph", False)
     
     async def initialize(self) -> None:
         """

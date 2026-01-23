@@ -1,4 +1,6 @@
 # AI框架默认配置文件
+# 配置版本: 2.0
+config_version: "2.0"
 
 # LLM服务配置
 llm:
@@ -16,6 +18,39 @@ llm:
     interval: 60  # 健康检查间隔（秒，0表示不自动检查）
     failover_enabled: true  # 是否启用故障转移（自动选择健康适配器）
   
+  # 路由配置（可选，启用智能路由）
+  enable_routing: false  # 是否启用适配器路由层
+  default_routing_strategy: "balanced"  # 默认路由策略：cost_first/performance_first/availability_first/balanced
+  
+  # 性能优化配置
+  performance:
+    enable_connection_pool: true  # 是否启用HTTP连接池
+    max_connections: 100  # 最大连接数
+    max_keepalive_connections: 20  # 最大保持活跃连接数
+    connection_timeout: 30.0  # 连接超时时间（秒）
+    enable_cache: true  # 是否启用请求缓存
+    cache_ttl: 3600.0  # 缓存生存时间（秒）
+    cache_max_size: 1000  # 最大缓存条目数
+    enable_deduplication: true  # 是否启用请求去重
+    batch_size: 10  # 批量处理大小
+    max_concurrent: 5  # 最大并发数
+  
+  # 成本管理配置
+  cost:
+    enabled: true  # 是否启用成本管理
+    daily_budget: 0.0  # 每日预算（美元，0表示无限制）
+    monthly_budget: 0.0  # 每月预算（美元，0表示无限制）
+    alert_threshold: 0.8  # 告警阈值（0-1，0.8表示80%）
+    budget_enabled: false  # 是否启用预算管理
+  
+  # 监控和可观测性配置
+  monitoring:
+    enabled: true  # 是否启用监控
+    tracing_enabled: true  # 是否启用请求追踪
+    tracing:
+      max_traces: 1000  # 最大追踪数
+      trace_ttl: 3600  # 追踪TTL（秒）
+  
   # 适配器配置（每个适配器的独立配置）
   adapters:
     openai-adapter:
@@ -30,6 +65,12 @@ llm:
     deepseek-adapter:
       api_key: ""  # DeepSeek API密钥
       base_url: "https://api.deepseek.com/v1"  # 可选
+    litellm-adapter:
+      api_key: ""  # LiteLLM API密钥（可选，LiteLLM可以从环境变量读取）
+      model: ""  # 默认模型（可选）
+      litellm_config:  # LiteLLM特定配置
+        api_base: ""  # 可选，自定义API端点
+        api_version: ""  # 可选，API版本
   
   # 模型到适配器的映射（可选，会自动推断）
   model_adapter_mapping:
@@ -82,7 +123,20 @@ agent:
   timeout: 300  # Agent任务超时时间（秒）
   enable_long_term_memory: false  # 是否启用长期记忆
   enable_planner: false  # 是否启用任务规划器
+  enable_langchain: false  # 是否启用LangChain集成（可选）
+  enable_langgraph: false  # 是否启用LangGraph集成（可选）
   max_messages: null  # 最大消息数（null表示无限制）
+  
+  # LangChain配置（可选）
+  langchain:
+    enabled: false  # 是否启用LangChain
+    memory_type: "buffer"  # 记忆类型：buffer/summary
+    default_chain_type: "llm_chain"  # 默认链类型
+  
+  # LangGraph配置（可选）
+  langgraph:
+    enabled: false  # 是否启用LangGraph
+    persist_state: false  # 是否持久化工作流状态
   
   # 互联网访问工具配置
   web_tools:

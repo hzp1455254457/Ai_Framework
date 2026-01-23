@@ -14,9 +14,12 @@
 """
 
 from abc import abstractmethod
-from typing import List, Dict, Any, Optional, AsyncIterator
+from typing import List, Dict, Any, Optional, AsyncIterator, TYPE_CHECKING
 from core.base.adapter import BaseAdapter
-from core.llm.models import LLMResponse
+from core.llm.models import LLMResponse, ModelCapability
+
+if TYPE_CHECKING:
+    from core.llm.connection_pool import ConnectionPoolManager
 
 
 class BaseLLMAdapter(BaseAdapter):
@@ -29,6 +32,8 @@ class BaseLLMAdapter(BaseAdapter):
         - 统一的调用接口
         - 流式调用支持
         - 响应格式标准化
+        - 模型能力标签
+        - 成本信息
     
     示例:
         >>> class MyAdapter(BaseLLMAdapter):
@@ -40,6 +45,23 @@ class BaseLLMAdapter(BaseAdapter):
         ...         # 实现调用逻辑
         ...         return {"content": "...", "usage": {...}}
     """
+    
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        connection_pool: Optional["ConnectionPoolManager"] = None,
+    ) -> None:
+        """
+        初始化适配器
+        
+        参数:
+            config: 适配器配置
+            connection_pool: 连接池管理器（可选，用于性能优化）
+        """
+        super().__init__(config)
+        self._capability: Optional[ModelCapability] = None
+        self._cost_per_1k_tokens: Optional[Dict[str, float]] = None  # {input: cost, output: cost}
+        self._connection_pool: Optional["ConnectionPoolManager"] = connection_pool
     
     @property
     @abstractmethod
@@ -113,3 +135,50 @@ class BaseLLMAdapter(BaseAdapter):
             **kwargs,
         )
         yield response
+    
+    def get_capability(self) -> Optional[ModelCapability]:
+        """
+        获取模型能力标签
+        
+        返回:
+            模型能力标签，如果未设置返回None
+        """
+        return self._capability
+    
+    def set_capability(self, capability: ModelCapability) -> None:
+        """
+        设置模型能力标签
+        
+        参数:
+            capability: 模型能力标签
+        """
+        self._capability = capability
+    
+    def get_cost_per_1k_tokens(self, model: str) -> Optional[Dict[str, float]]:
+        """
+        获取每1000个Token的成本（美元）
+        
+        参数:
+            model: 模型名称
+        
+        返回:
+            成本字典，包含input和output成本，如果未设置返回None
+        """
+        return self._cost_per_1k_tokens
+    
+    def set_cost_per_1k_tokens(
+        self,
+        input_cost: float,
+        output_cost: float,
+    ) -> None:
+        """
+        设置每1000个Token的成本
+        
+        参数:
+            input_cost: 输入Token成本（每1000个Token）
+            output_cost: 输出Token成本（每1000个Token）
+        """
+        self._cost_per_1k_tokens = {
+            "input": input_cost,
+            "output": output_cost,
+        }

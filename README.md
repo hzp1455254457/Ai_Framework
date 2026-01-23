@@ -11,6 +11,15 @@
 - ⚙️ **配置驱动**：多环境配置支持，灵活的环境变量管理
 - 📚 **完整文档**：API 参考文档、快速开始指南、架构设计文档
 
+### 🆕 v2.0 新特性
+
+- 🎯 **智能路由和负载均衡**：支持多种路由策略（成本优先、性能优先、可用性优先、平衡模式），自动选择最优模型
+- ⚡ **性能优化**：HTTP连接池、请求缓存、请求去重、批量处理，显著提升性能
+- 💰 **成本管理**：Token使用跟踪、成本计算、预算管理和优化建议
+- 📊 **监控和可观测性**：Prometheus指标采集、分布式请求追踪、结构化日志
+- 🔗 **主流框架集成**：LiteLLM（统一多模型接口）、LangChain（AI应用开发）、LangGraph（工作流编排），全部可选
+- 🔄 **向后兼容**：现有API和配置完全兼容，无需修改代码即可使用
+
 ## 🚀 快速开始
 
 ### 安装
@@ -86,6 +95,11 @@ python simple_chat_example.py
 - [快速开始指南](docs/guides/getting-started.md) - 详细的安装和使用教程
 - [API 参考文档](docs/api/api-reference.md) - 完整的 API 接口说明
 - [架构方案文档](AI框架架构方案文档.md) - 项目架构和技术选型
+- [重构后架构文档](docs/architecture/refactored-architecture.md) - v2.0 新架构设计
+- [迁移指南](docs/guides/migration-guide.md) - 从 v1.0 迁移到 v2.0
+- [性能优化指南](docs/guides/performance-optimization.md) - 性能优化功能和使用方法
+- [成本管理指南](docs/guides/cost-management.md) - 成本管理功能和使用方法
+- [配置管理指南](docs/guides/configuration.md) - 配置管理功能和使用方法
 - [项目计划](docs/PROJECT_PLAN.md) - 开发计划和进度
 
 ## 🌐 API 服务

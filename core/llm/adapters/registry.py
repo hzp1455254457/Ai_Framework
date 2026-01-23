@@ -79,6 +79,14 @@ class AdapterRegistry:
                 ollama_adapter,
             ]
             
+            # 尝试导入LiteLLM适配器（可选）
+            try:
+                from core.llm.adapters import litellm_adapter
+                modules.append(litellm_adapter)
+            except ImportError:
+                # LiteLLM未安装，跳过
+                pass
+            
             for module in modules:
                 for name, obj in inspect.getmembers(module, inspect.isclass):
                     # 检查是否是适配器类（BaseLLMAdapter的子类，但不是基类本身）
@@ -135,6 +143,7 @@ class AdapterRegistry:
         self,
         adapter_name: str,
         config: Dict[str, Any],
+        connection_pool: Optional[Any] = None,
     ) -> BaseLLMAdapter:
         """
         创建适配器实例
@@ -157,9 +166,9 @@ class AdapterRegistry:
         if cache_key in self._instances:
             return self._instances[cache_key]
         
-        # 创建新实例
+        # 创建新实例（传递连接池）
         adapter_class = self._adapters[adapter_name]
-        adapter = adapter_class(config)
+        adapter = adapter_class(config, connection_pool=connection_pool)
         await adapter.initialize()
         
         # 缓存实例

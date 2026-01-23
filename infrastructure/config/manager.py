@@ -14,7 +14,7 @@
 """
 
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 from .loader import ConfigLoader
 from .validator import ConfigValidator, ConfigError, ConfigValidationError
@@ -307,20 +307,28 @@ class ConfigManager:
         except Exception as e:
             raise ConfigError(f"配置重新加载失败: {e}") from e
     
-    def validate(self) -> bool:
+    def validate(self, auto_migrate: bool = False) -> List[str]:
         """
         验证配置有效性
         
+        参数:
+            auto_migrate: 是否自动迁移旧版本配置（默认False）
+        
         返回:
-            True表示配置有效
+            错误列表（空列表表示验证通过）
         
         异常:
-            ConfigValidationError: 配置验证失败时抛出
+            ConfigValidationError: 配置验证失败时抛出（如果有错误）
         
         示例:
-            >>> config.validate()
+            >>> errors = config.validate()
+            >>> if errors:
+            ...     print("配置验证失败:", errors)
         """
-        return self._validator.validate(self._config)
+        errors = self._validator.validate(self._config, auto_migrate=auto_migrate)
+        if errors:
+            raise ConfigValidationError(f"配置验证失败: {', '.join(errors)}")
+        return errors
     
     @property
     def config(self) -> Dict[str, Any]:

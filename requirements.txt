@@ -36,3 +36,16 @@ cryptography>=41.0.0
 
 # HTML解析库（用于互联网访问工具）
 beautifulsoup4>=4.12.0
+
+# 可选依赖：主流AI框架集成
+# LiteLLM - 统一多模型接口框架（可选）
+# litellm>=1.0.0
+
+# LangChain - AI应用开发框架（可选）
+# langchain>=0.1.0
+
+# LangGraph - 工作流编排框架（可选）
+# langgraph>=0.0.1
+
+# Prometheus客户端（监控指标）
+prometheus-client>=0.19.0

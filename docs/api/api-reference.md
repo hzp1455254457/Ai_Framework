@@ -18,6 +18,15 @@
   - [聊天接口](#1-聊天接口)
   - [流式聊天接口](#2-流式聊天接口)
   - [获取模型列表](#3-获取模型列表)
+  - [获取模型能力](#4-获取模型能力)
+  - [获取路由策略](#5-获取路由策略)
+  - [获取成本统计](#6-获取成本统计)
+  - [获取成本优化建议](#7-获取成本优化建议)
+- [Metrics API](#metrics-api)
+  - [Prometheus指标](#1-prometheus指标)
+  - [统计信息](#2-统计信息)
+  - [追踪列表](#3-追踪列表)
+  - [追踪详情](#4-追踪详情)
 - [Agent API](#agent-api)
   - [任务执行接口](#1-任务执行接口)
   - [工具注册接口](#2-工具注册接口)
@@ -71,6 +80,9 @@ LLM API提供大语言模型的聊天和对话功能。
 | model | String | 否 | 服务默认模型 | 模型名称（如 "qwen-turbo", "gpt-3.5-turbo"） |
 | temperature | Float | 否 | 0.7 | 温度参数，控制输出随机性（0.0-2.0） |
 | max_tokens | Integer | 否 | - | 最大token数 |
+| use_agent | Boolean | 否 | false | 是否启用Agent模式进行工具调用 |
+| conversation_id | String | 否 | - | 对话ID，用于Agent长期记忆 |
+| routing_strategy | String | 否 | - | 路由策略：cost_first/performance_first/availability_first/balanced/manual |
 
 **Message对象**:
 ```json
@@ -169,7 +181,10 @@ async with httpx.AsyncClient() as client:
     }
   ],
   "model": "qwen-turbo",
-  "temperature": 0.7
+  "temperature": 0.7,
+  "use_agent": false,
+  "conversation_id": null,
+  "routing_strategy": "balanced"
 }
 ```
 
@@ -180,6 +195,9 @@ async with httpx.AsyncClient() as client:
 | messages | Array[Message] | 是 | - | 消息列表 |
 | model | String | 否 | 服务默认模型 | 模型名称 |
 | temperature | Float | 否 | 0.7 | 温度参数（0.0-2.0） |
+| use_agent | Boolean | 否 | false | 是否启用Agent模式进行工具调用 |
+| conversation_id | String | 否 | - | 对话ID，用于Agent长期记忆 |
+| routing_strategy | String | 否 | - | 路由策略：cost_first/performance_first/availability_first/balanced/manual |
 
 **响应格式**: Server-Sent Events (SSE)
 

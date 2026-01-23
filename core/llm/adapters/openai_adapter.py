@@ -20,6 +20,11 @@ from httpx import AsyncClient, HTTPError, TimeoutException
 from core.llm.adapters.base import BaseLLMAdapter
 from core.base.adapter import AdapterCallError
 from core.base.health_check import HealthStatus, HealthCheckResult
+from core.llm.models import ModelCapability
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.llm.connection_pool import ConnectionPoolManager
 
 
 class OpenAIAdapter(BaseLLMAdapter):
@@ -46,14 +51,19 @@ class OpenAIAdapter(BaseLLMAdapter):
         >>> response = await adapter.call(messages=[...], model="gpt-3.5-turbo")
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        connection_pool: Optional["ConnectionPoolManager"] = None,
+    ) -> None:
         """
         初始化OpenAI适配器
         
         参数:
             config: 适配器配置，包含api_key等
+            connection_pool: 连接池管理器（可选，用于性能优化）
         """
-        super().__init__(config)
+        super().__init__(config, connection_pool)
         self._api_key: str = ""
         self._base_url: str = "https://api.openai.com/v1"
         self._client: Optional[AsyncClient] = None
@@ -84,14 +94,44 @@ class OpenAIAdapter(BaseLLMAdapter):
         
         self._base_url = self._config.get("base_url", self._base_url)
         
-        # 创建HTTP客户端
-        self._client = AsyncClient(
-            base_url=self._base_url,
-            timeout=30.0,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
+        # 创建HTTP客户端（使用连接池或直接创建）
+        if self._connection_pool:
+            # 使用连接池管理器获取客户端
+            self._client = await self._connection_pool.get_client(
+                base_url=self._base_url,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=30.0,
+            )
+        else:
+            # 直接创建客户端（向后兼容）
+            self._client = AsyncClient(
+                base_url=self._base_url,
+                timeout=30.0,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+        
+        # 设置模型能力标签（OpenAI模型通常支持所有能力）
+        capability = ModelCapability(
+            reasoning=True,
+            creativity=True,
+            cost_effective=False,  # OpenAI模型成本较高
+            fast=True,
+            multilingual=True,
+            function_calling=True,
+        )
+        self.set_capability(capability)
+        
+        # 设置成本信息（GPT-3.5-turbo的示例成本，实际成本可能因模型而异）
+        # 注意：这里设置的是通用成本，实际应该根据具体模型调整
+        self.set_cost_per_1k_tokens(
+            input_cost=0.0015,   # $0.0015 per 1K input tokens (GPT-3.5-turbo)
+            output_cost=0.002,   # $0.002 per 1K output tokens (GPT-3.5-turbo)
         )
         
         await super().initialize()
@@ -217,7 +257,7 @@ class OpenAIAdapter(BaseLLMAdapter):
         request_data.update(kwargs)
         
         try:
-            # 发送流式请求
+            # 发送流式请求（优化：使用更小的缓冲区减少延迟）
             async with self._client.stream(
                 "POST",
                 "/chat/completions",
@@ -225,36 +265,46 @@ class OpenAIAdapter(BaseLLMAdapter):
             ) as response:
                 response.raise_for_status()
                 
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
+                # 优化：使用aiter_bytes而不是aiter_lines，减少缓冲延迟
+                # 但为了兼容性，仍然使用aiter_lines，但设置较小的缓冲区
+                buffer = ""
+                async for chunk in response.aiter_bytes(chunk_size=1):  # 小chunk_size减少延迟
+                    buffer += chunk.decode('utf-8', errors='ignore')
                     
-                    # 解析SSE格式
-                    if line.startswith("data: "):
-                        data_str = line[6:]  # 移除 "data: " 前缀
+                    # 按行处理
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        line = line.strip()
                         
-                        if data_str == "[DONE]":
-                            break
-                        
-                        try:
-                            data = json.loads(data_str)
-                            choices = data.get("choices", [])
-                            
-                            if choices:
-                                choice = choices[0]
-                                delta = choice.get("delta", {})
-                                content = delta.get("content", "")
-                                
-                                if content:
-                                    yield {
-                                        "content": content,
-                                        "usage": {},
-                                        "metadata": {
-                                            "model": data.get("model", model),
-                                        },
-                                    }
-                        except json.JSONDecodeError:
+                        if not line:
                             continue
+                        
+                        # 解析SSE格式
+                        if line.startswith("data: "):
+                            data_str = line[6:]  # 移除 "data: " 前缀
+                            
+                            if data_str == "[DONE]":
+                                break
+                            
+                            try:
+                                data = json.loads(data_str)
+                                choices = data.get("choices", [])
+                                
+                                if choices:
+                                    choice = choices[0]
+                                    delta = choice.get("delta", {})
+                                    content = delta.get("content", "")
+                                    
+                                    if content:
+                                        yield {
+                                            "content": content,
+                                            "usage": {},
+                                            "metadata": {
+                                                "model": data.get("model", model),
+                                            },
+                                        }
+                            except json.JSONDecodeError:
+                                continue
                             
         except HTTPError as e:
             error_message = f"OpenAI流式API调用失败: {e}"

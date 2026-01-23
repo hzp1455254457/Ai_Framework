@@ -22,6 +22,11 @@ from httpx import AsyncClient, HTTPError
 
 from core.base.adapter import AdapterCallError
 from core.llm.adapters.base import BaseLLMAdapter
+from core.llm.models import ModelCapability
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.llm.connection_pool import ConnectionPoolManager
 
 
 class OllamaAdapter(BaseLLMAdapter):
@@ -36,8 +41,12 @@ class OllamaAdapter(BaseLLMAdapter):
         }
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
-        super().__init__(config)
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        connection_pool: Optional["ConnectionPoolManager"] = None,
+    ) -> None:
+        super().__init__(config, connection_pool)
         self._base_url: str = "http://localhost:11434"
         self._client: Optional[AsyncClient] = None
 
@@ -54,7 +63,34 @@ class OllamaAdapter(BaseLLMAdapter):
             self._config.update(config)
 
         self._base_url = self._config.get("base_url", self._base_url)
-        self._client = AsyncClient(base_url=self._base_url, timeout=60.0)
+        
+        # 创建HTTP客户端（使用连接池或直接创建）
+        if self._connection_pool:
+            self._client = await self._connection_pool.get_client(
+                base_url=self._base_url,
+                headers={},
+                timeout=60.0,
+            )
+        else:
+            self._client = AsyncClient(base_url=self._base_url, timeout=60.0)
+        
+        # 设置模型能力标签（Ollama本地模型能力）
+        capability = ModelCapability(
+            reasoning=True,  # 取决于具体模型
+            creativity=True,
+            cost_effective=True,  # 本地模型无API成本
+            fast=False,  # 本地模型可能较慢（取决于硬件）
+            multilingual=True,  # 取决于具体模型
+            function_calling=False,  # 大多数本地模型不支持Function Calling
+        )
+        self.set_capability(capability)
+        
+        # 设置成本信息（Ollama本地模型无API成本）
+        self.set_cost_per_1k_tokens(
+            input_cost=0.0,   # 本地模型无API成本
+            output_cost=0.0,   # 本地模型无API成本
+        )
+        
         await super().initialize()
 
     async def call(

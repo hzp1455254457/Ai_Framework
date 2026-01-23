@@ -19,6 +19,11 @@ from typing import List, Dict, Any, Optional, AsyncIterator
 from httpx import AsyncClient, HTTPError
 from core.llm.adapters.base import BaseLLMAdapter
 from core.base.adapter import AdapterCallError
+from core.llm.models import ModelCapability
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.llm.connection_pool import ConnectionPoolManager
 
 
 class QwenAdapter(BaseLLMAdapter):
@@ -44,14 +49,19 @@ class QwenAdapter(BaseLLMAdapter):
         >>> response = await adapter.call(messages=[...])
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        connection_pool: Optional["ConnectionPoolManager"] = None,
+    ) -> None:
         """
         初始化通义千问适配器
         
         参数:
             config: 适配器配置，包含api_key等
+            connection_pool: 连接池管理器（可选，用于性能优化）
         """
-        super().__init__(config)
+        super().__init__(config, connection_pool)
         self._api_key: str = ""
         self._base_url: str = "https://dashscope.aliyuncs.com/api/v1"
         self._client: Optional[AsyncClient] = None
@@ -84,14 +94,60 @@ class QwenAdapter(BaseLLMAdapter):
         
         self._base_url = self._config.get("base_url", self._base_url)
         
-        # 创建HTTP客户端
-        self._client = AsyncClient(
-            base_url=self._base_url,
-            timeout=30.0,
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
+        # 创建HTTP客户端（使用连接池或直接创建）
+        if self._connection_pool:
+            self._client = await self._connection_pool.get_client(
+                base_url=self._base_url,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=30.0,
+            )
+        else:
+            self._client = AsyncClient(
+                base_url=self._base_url,
+                timeout=30.0,
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+        
+        # 设置模型能力标签（通义千问模型能力）
+        capability = ModelCapability(
+            reasoning=True,
+            creativity=True,
+            cost_effective=True,  # 国内模型通常成本较低
+            fast=True,
+            multilingual=True,  # 支持中文和英文
+            function_calling=True,
+        )
+        self.set_capability(capability)
+        
+        # 设置成本信息（通义千问的示例成本，实际成本可能因模型而异）
+        # 注意：这里设置的是通用成本，实际应该根据具体模型调整
+        self.set_cost_per_1k_tokens(
+            input_cost=0.0003,   # 示例成本（需要根据实际定价调整）
+            output_cost=0.0006,   # 示例成本（需要根据实际定价调整）
+        )
+        
+        # 设置模型能力标签（通义千问模型能力）
+        capability = ModelCapability(
+            reasoning=True,
+            creativity=True,
+            cost_effective=True,  # 国内模型通常成本较低
+            fast=True,
+            multilingual=True,  # 支持中文和英文
+            function_calling=True,
+        )
+        self.set_capability(capability)
+        
+        # 设置成本信息（通义千问的示例成本，实际成本可能因模型而异）
+        # 注意：这里设置的是通用成本，实际应该根据具体模型调整
+        self.set_cost_per_1k_tokens(
+            input_cost=0.0003,   # 示例成本（需要根据实际定价调整）
+            output_cost=0.0006,   # 示例成本（需要根据实际定价调整）
         )
         
         await super().initialize()

@@ -17,15 +17,33 @@
     - infrastructure.log: 日志管理
 """
 
-from typing import List, Dict, Any, Optional, AsyncIterator
+from typing import List, Dict, Any, Optional, AsyncIterator, TYPE_CHECKING
+from datetime import datetime
+from time import time as time_now
 from core.base.service import BaseService
-from core.llm.models import LLMResponse, LLMMessage
+from core.llm.models import LLMResponse, LLMMessage, RoutingStrategy
 from core.llm.context import ConversationContext
 from core.llm.adapters.base import BaseLLMAdapter
 from core.llm.adapters.registry import AdapterRegistry
+if TYPE_CHECKING:
+    from core.llm.adapters.factory import AdapterFactory
+    from core.llm.routing import AdapterRouter
+else:
+    from core.llm.adapters.factory import AdapterFactory
+    from core.llm.routing import AdapterRouter
 from core.llm.utils.retry import retry_with_backoff
 from core.llm.utils.token_counter import TokenCounter
 from core.base.health_check import HealthCheckResult, HealthStatus
+from core.llm.connection_pool import ConnectionPoolManager
+from core.llm.request_cache import RequestCache, RequestDeduplicator
+from core.llm.cost_manager import CostManager
+try:
+    from core.llm.metrics_collector import MetricsCollector
+    METRICS_AVAILABLE = True
+except ImportError:
+    METRICS_AVAILABLE = False
+    MetricsCollector = None
+from core.llm.request_tracer import RequestTracer
 
 
 class LLMError(Exception):
@@ -70,8 +88,61 @@ class LLMService(BaseService):
         self._adapters: Dict[str, BaseLLMAdapter] = {}
         self._default_model: str = config.get("llm", {}).get("default_model", "gpt-3.5-turbo")
         self._registry: AdapterRegistry = AdapterRegistry()
+        self._factory: Optional[AdapterFactory] = None
+        self._router: Optional[AdapterRouter] = None
         self._auto_discover: bool = config.get("llm", {}).get("auto_discover_adapters", True)
+        self._enable_routing: bool = config.get("llm", {}).get("enable_routing", False)
+        self._default_routing_strategy: RoutingStrategy = RoutingStrategy(
+            config.get("llm", {}).get("default_routing_strategy", "balanced")
+        )
         self._token_counter: TokenCounter = TokenCounter()
+        
+        # 性能优化组件
+        llm_config = config.get("llm", {})
+        perf_config = llm_config.get("performance", {})
+        
+        # 连接池管理器
+        self._connection_pool: Optional[ConnectionPoolManager] = None
+        if perf_config.get("enable_connection_pool", True):
+            self._connection_pool = ConnectionPoolManager(
+                max_connections=perf_config.get("max_connections", 100),
+                max_keepalive_connections=perf_config.get("max_keepalive_connections", 20),
+                timeout=perf_config.get("connection_timeout", 30.0),
+            )
+        
+        # 请求缓存
+        self._request_cache: Optional[RequestCache] = None
+        if perf_config.get("enable_cache", True):
+            self._request_cache = RequestCache(
+                ttl=perf_config.get("cache_ttl", 3600.0),
+                max_size=perf_config.get("cache_max_size", 1000),
+            )
+        
+        # 请求去重器
+        self._request_deduplicator: Optional[RequestDeduplicator] = None
+        if perf_config.get("enable_deduplication", True):
+            self._request_deduplicator = RequestDeduplicator()
+        
+        # 成本管理器
+        cost_config = llm_config.get("cost", {})
+        self._cost_manager: Optional[CostManager] = None
+        if cost_config.get("enabled", True):
+            self._cost_manager = CostManager(cost_config)
+        
+        # 指标采集器
+        monitoring_config = llm_config.get("monitoring", {})
+        self._metrics_collector: Optional[MetricsCollector] = None
+        if monitoring_config.get("enabled", True) and METRICS_AVAILABLE:
+            try:
+                self._metrics_collector = MetricsCollector()
+            except ImportError:
+                self.logger.warning("prometheus_client未安装，监控功能已禁用")
+                self._metrics_collector = None
+        
+        # 请求追踪器
+        self._request_tracer: Optional[RequestTracer] = None
+        if monitoring_config.get("tracing_enabled", True):
+            self._request_tracer = RequestTracer(monitoring_config.get("tracing", {}))
     
     async def initialize(self) -> None:
         """初始化服务资源"""
@@ -81,6 +152,12 @@ class LLMService(BaseService):
         if self._auto_discover:
             self._registry.discover_adapters()
             await self._auto_register_adapters()
+        
+        # 初始化适配器工厂和路由层（如果启用路由）
+        if self._enable_routing:
+            self._factory = AdapterFactory(self._registry)
+            self._router = AdapterRouter(self._factory)
+            self.logger.info("适配器路由层已启用")
         
         self.logger.info(f"LLM服务初始化完成，默认模型: {self._default_model}")
         self.logger.info(f"已注册适配器: {list(self._adapters.keys())}")
@@ -103,6 +180,18 @@ class LLMService(BaseService):
         available_adapters = self._registry.get_available_adapters()
         
         for adapter_name in available_adapters:
+            # 跳过LiteLLM适配器（需要特殊处理，因为它是可选的）
+            if adapter_name == "litellm-adapter":
+                # LiteLLM适配器需要检查是否可用
+                try:
+                    from core.llm.adapters.litellm_adapter import LiteLLMAdapter, LITELLM_AVAILABLE
+                    if not LITELLM_AVAILABLE:
+                        self.logger.debug("LiteLLM未安装，跳过LiteLLM适配器注册")
+                        continue
+                except ImportError:
+                    self.logger.debug("LiteLLM适配器不可用，跳过注册")
+                    continue
+            
             # 检查是否有该适配器的配置
             adapter_config = adapters_config.get(adapter_name, {})
             
@@ -117,10 +206,14 @@ class LLMService(BaseService):
                     if provider_key in llm_config:
                         adapter_config = llm_config[provider_key]
             
-            # 如果有配置，创建并注册适配器
-            if adapter_config:
+            # 对于LiteLLM适配器，即使没有配置也可以注册（LiteLLM可以从环境变量读取）
+            if adapter_config or adapter_name == "litellm-adapter":
                 try:
-                    adapter = await self._registry.create_adapter(adapter_name, adapter_config)
+                    adapter = await self._registry.create_adapter(
+                        adapter_name,
+                        adapter_config or {},
+                        connection_pool=self._connection_pool,
+                    )
                     self._adapters[adapter_name] = adapter
                     self.logger.info(f"自动注册适配器: {adapter_name}")
                 except Exception as e:
@@ -141,16 +234,23 @@ class LLMService(BaseService):
         self._adapters[adapter.name] = adapter
         self.logger.info(f"手动注册适配器: {adapter.name} (provider: {adapter.provider})")
     
-    def _get_adapter(self, model: Optional[str] = None, require_healthy: bool = False) -> BaseLLMAdapter:
+    async def _get_adapter(
+        self,
+        model: Optional[str] = None,
+        require_healthy: bool = False,
+        strategy: Optional[RoutingStrategy] = None,
+    ) -> BaseLLMAdapter:
         """
         获取适配器
         
         根据模型名称自动选择适配器，如果未指定模型则使用默认适配器。
         支持健康检查和故障转移。
+        如果启用了路由层，则使用路由策略选择适配器。
         
         参数:
             model: 模型名称（可选）
             require_healthy: 是否要求适配器健康（默认False，向后兼容）
+            strategy: 路由策略（可选，如果启用路由层）
         
         返回:
             适配器实例
@@ -161,7 +261,21 @@ class LLMService(BaseService):
         if not self._adapters:
             raise LLMError("没有注册的适配器")
         
-        # 如果指定了模型，尝试根据模型名称找到对应的适配器
+        # 如果启用了路由层，使用路由策略选择适配器
+        if self._enable_routing and self._router:
+            try:
+                request = {
+                    "model": model or self._default_model,
+                    "require_healthy": require_healthy,
+                }
+                routing_strategy = strategy or self._default_routing_strategy
+                selected = await self._router.route(request, routing_strategy, list(self._adapters.values()))
+                if selected:
+                    return selected
+            except Exception as e:
+                self.logger.warning(f"路由选择失败，回退到默认选择: {e}")
+        
+        # 回退到原有逻辑（保持向后兼容）
         candidate_adapters: List[BaseLLMAdapter] = []
         
         if model:
@@ -289,9 +403,33 @@ class LLMService(BaseService):
             raise ValueError("消息列表不能为空")
         
         model = model or self._default_model
-        adapter = self._get_adapter(model)
+        adapter = await self._get_adapter(model)
         
         self.logger.debug(f"发送LLM请求，模型: {model}, 消息数: {len(messages)}")
+        
+        # 开始追踪（如果启用了追踪）
+        trace_context = None
+        span = None
+        if self._request_tracer:
+            try:
+                trace_context = self._request_tracer.start_trace(
+                    operation="llm_chat",
+                    metadata={"model": model, "adapter": adapter.name},
+                )
+                span = self._request_tracer.start_span(
+                    trace_context,
+                    operation="adapter_call",
+                    tags={"adapter": adapter.name, "model": model},
+                )
+            except Exception as e:
+                self.logger.warning(f"开始追踪失败: {e}")
+        
+        # 记录活跃请求数
+        if self._metrics_collector:
+            self._metrics_collector.increment_active_requests(adapter.name, model)
+        
+        # 记录请求开始时间
+        request_start_time = time_now()
         
         # 获取重试配置
         max_retries = self._config.get("llm", {}).get("max_retries", 3)
@@ -329,10 +467,83 @@ class LLMService(BaseService):
                 metadata=result.get("metadata", {}),
             )
             
+            # 计算请求持续时间
+            request_duration = time_now() - request_start_time
+            
+            # 记录成本（如果启用了成本管理）
+            cost = None
+            if self._cost_manager and response.usage:
+                try:
+                    # 获取适配器的成本信息
+                    cost_info = adapter.get_cost_per_1k_tokens(model)
+                    cost_record = await self._cost_manager.record_usage(
+                        adapter_name=adapter.name,
+                        model=model,
+                        usage=response.usage,
+                        cost_info=cost_info,
+                    )
+                    cost = cost_record.total_cost
+                except Exception as e:
+                    self.logger.warning(f"记录成本失败: {e}")
+            
+            # 结束追踪
+            if span is not None:
+                try:
+                    self._request_tracer.end_span(span)
+                    if trace_context is not None:
+                        self._request_tracer.end_trace(trace_context)
+                except Exception as e:
+                    self.logger.warning(f"结束追踪失败: {e}")
+            
+            # 减少活跃请求数
+            if self._metrics_collector:
+                self._metrics_collector.decrement_active_requests(adapter.name, model)
+            
+            # 记录指标（如果启用了指标采集）
+            if self._metrics_collector:
+                try:
+                    self._metrics_collector.record_request(
+                        adapter=adapter.name,
+                        model=model,
+                        duration=request_duration,
+                        success=True,
+                        tokens=response.usage,
+                        cost=cost,
+                    )
+                except Exception as e:
+                    self.logger.warning(f"记录指标失败: {e}")
+            
             self.logger.debug(f"LLM响应完成，Token使用: {response.total_tokens}")
             return response
             
         except Exception as e:
+            # 计算请求持续时间
+            request_duration = time_now() - request_start_time if 'request_start_time' in locals() else 0.0
+            
+            # 结束追踪（错误情况）
+            if span is not None:
+                try:
+                    self._request_tracer.end_span(span, error=str(e))
+                    if trace_context is not None:
+                        self._request_tracer.end_trace(trace_context)
+                except Exception:
+                    pass
+            
+            # 减少活跃请求数
+            if self._metrics_collector:
+                try:
+                    self._metrics_collector.decrement_active_requests(adapter.name, model)
+                    # 记录错误指标
+                    self._metrics_collector.record_request(
+                        adapter=adapter.name,
+                        model=model,
+                        duration=request_duration,
+                        success=False,
+                        error_type=type(e).__name__,
+                    )
+                except Exception:
+                    pass
+            
             self.logger.error(f"LLM调用失败: {e}", exc_info=True)
             raise LLMError(f"LLM调用失败: {e}") from e
     
@@ -366,22 +577,36 @@ class LLMService(BaseService):
             raise ValueError("消息列表不能为空")
         
         model = model or self._default_model
-        adapter = self._get_adapter(model)
+        adapter = await self._get_adapter(model)
         
         self.logger.debug(f"发送流式LLM请求，模型: {model}")
         
         try:
+            # 优化流式响应：立即yield，减少延迟
+            accumulated_content = ""
             async for chunk_result in adapter.stream_call(
                 messages=messages,
                 model=model,
                 temperature=temperature,
             ):
-                yield LLMResponse(
-                    content=chunk_result.get("content", ""),
-                    model=model,
-                    usage=chunk_result.get("usage", {}),
-                    metadata=chunk_result.get("metadata", {}),
-                )
+                chunk_content = chunk_result.get("content", "")
+                if chunk_content:
+                    accumulated_content += chunk_content
+                    # 立即yield，不等待完整响应
+                    yield LLMResponse(
+                        content=chunk_content,  # 只返回增量内容
+                        model=model,
+                        usage=chunk_result.get("usage", {}),
+                        metadata=chunk_result.get("metadata", {}),
+                    )
+                else:
+                    # 最终块，包含完整使用信息
+                    yield LLMResponse(
+                        content="",  # 最终块不包含新内容
+                        model=model,
+                        usage=chunk_result.get("usage", {}),
+                        metadata=chunk_result.get("metadata", {}),
+                    )
         except Exception as e:
             self.logger.error(f"流式LLM调用失败: {e}", exc_info=True)
             raise LLMError(f"流式LLM调用失败: {e}") from e
@@ -408,3 +633,59 @@ class LLMService(BaseService):
             - 非OpenAI/未知模型：使用cl100k_base作为回退（仍为编码级别的真实token计数）
         """
         return self._token_counter.count_text_tokens(text=text, model=model)
+    
+    async def get_cost_statistics(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        adapter_name: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        获取成本统计信息
+        
+        参数:
+            start_date: 开始日期（可选）
+            end_date: 结束日期（可选）
+            adapter_name: 适配器名称（可选）
+            model: 模型名称（可选）
+        
+        返回:
+            成本统计信息
+        """
+        if not self._cost_manager:
+            return {"error": "成本管理未启用"}
+        
+        return await self._cost_manager.get_statistics(
+            start_date=start_date,
+            end_date=end_date,
+            adapter_name=adapter_name,
+            model=model,
+        )
+    
+    async def get_cost_optimization_suggestions(self) -> List[Dict[str, Any]]:
+        """
+        获取成本优化建议
+        
+        返回:
+            优化建议列表
+        """
+        if not self._cost_manager:
+            return []
+        
+        return await self._cost_manager.get_optimization_suggestions(
+            adapters=list(self._adapters.values())
+        )
+    
+    async def cleanup(self) -> None:
+        """清理服务资源"""
+        # 清理连接池
+        if self._connection_pool:
+            await self._connection_pool.close_all()
+        
+        # 清理适配器
+        for adapter in self._adapters.values():
+            if hasattr(adapter, 'cleanup'):
+                await adapter.cleanup()
+        
+        await super().cleanup()

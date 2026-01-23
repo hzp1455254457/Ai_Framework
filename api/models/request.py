@@ -6,6 +6,7 @@ API请求模型模块
 
 from typing import List, Dict, Optional, Any
 from pydantic import BaseModel, Field
+from core.llm.models import RoutingStrategy
 
 
 class Message(BaseModel):
@@ -24,6 +25,7 @@ class ChatRequest(BaseModel):
     max_tokens: Optional[int] = Field(None, ge=1, description="最大token数")
     use_agent: bool = Field(False, description="是否启用Agent模式进行工具调用")
     conversation_id: Optional[str] = Field(None, description="对话ID，用于Agent长期记忆")
+    routing_strategy: Optional[str] = Field(None, description="路由策略：cost_first/performance_first/availability_first/balanced/manual")
     
     class Config:
         json_schema_extra = {
@@ -48,6 +50,7 @@ class StreamChatRequest(BaseModel):
     temperature: float = Field(0.7, ge=0.0, le=2.0, description="温度参数，控制输出随机性")
     use_agent: bool = Field(False, description="是否启用Agent模式进行工具调用")
     conversation_id: Optional[str] = Field(None, description="对话ID，用于Agent长期记忆")
+    routing_strategy: Optional[str] = Field(None, description="路由策略：cost_first/performance_first/availability_first/balanced/manual")
     
     class Config:
         json_schema_extra = {

@@ -22,6 +22,11 @@ from httpx import AsyncClient, HTTPError
 
 from core.base.adapter import AdapterCallError
 from core.llm.adapters.base import BaseLLMAdapter
+from core.llm.models import ModelCapability
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.llm.connection_pool import ConnectionPoolManager
 
 
 class ClaudeAdapter(BaseLLMAdapter):
@@ -38,8 +43,12 @@ class ClaudeAdapter(BaseLLMAdapter):
         }
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
-        super().__init__(config)
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        connection_pool: Optional["ConnectionPoolManager"] = None,
+    ) -> None:
+        super().__init__(config, connection_pool)
         self._api_key: str = ""
         self._base_url: str = "https://api.anthropic.com/v1"
         self._anthropic_version: str = "2023-06-01"
@@ -64,14 +73,43 @@ class ClaudeAdapter(BaseLLMAdapter):
         self._base_url = self._config.get("base_url", self._base_url)
         self._anthropic_version = self._config.get("anthropic_version", self._anthropic_version)
 
-        self._client = AsyncClient(
-            base_url=self._base_url,
-            timeout=30.0,
-            headers={
-                "x-api-key": self._api_key,
-                "anthropic-version": self._anthropic_version,
-                "Content-Type": "application/json",
-            },
+        # 创建HTTP客户端（使用连接池或直接创建）
+        if self._connection_pool:
+            self._client = await self._connection_pool.get_client(
+                base_url=self._base_url,
+                headers={
+                    "x-api-key": self._api_key,
+                    "anthropic-version": self._anthropic_version,
+                    "Content-Type": "application/json",
+                },
+                timeout=30.0,
+            )
+        else:
+            self._client = AsyncClient(
+                base_url=self._base_url,
+                timeout=30.0,
+                headers={
+                    "x-api-key": self._api_key,
+                    "anthropic-version": self._anthropic_version,
+                    "Content-Type": "application/json",
+                },
+            )
+        
+        # 设置模型能力标签（Claude模型能力）
+        capability = ModelCapability(
+            reasoning=True,  # Claude擅长推理
+            creativity=True,
+            cost_effective=False,  # Claude成本较高
+            fast=True,
+            multilingual=True,
+            function_calling=True,
+        )
+        self.set_capability(capability)
+        
+        # 设置成本信息（Claude的示例成本，实际成本可能因模型而异）
+        self.set_cost_per_1k_tokens(
+            input_cost=0.008,   # 示例成本（Claude-3 Opus，需要根据实际定价调整）
+            output_cost=0.024,   # 示例成本（Claude-3 Opus，需要根据实际定价调整）
         )
 
         await super().initialize()

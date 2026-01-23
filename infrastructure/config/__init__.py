@@ -8,6 +8,7 @@ from .manager import ConfigManager
 from .loader import ConfigLoader
 from .validator import ConfigValidator, ConfigError, ConfigValidationError
 from .encryption import EncryptionService, EncryptionError
+from .migrator import ConfigMigrator
 
 __all__ = [
     "ConfigManager",
@@ -17,4 +18,5 @@ __all__ = [
     "ConfigValidationError",
     "EncryptionService",
     "EncryptionError",
+    "ConfigMigrator",
 ]
