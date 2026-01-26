@@ -26,6 +26,14 @@ try:
 except ImportError:
     BeautifulSoup = None
 
+try:
+    from ddgs import DDGS
+except ImportError:
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        DDGS = None
+
 from httpx import AsyncClient, HTTPError, TimeoutException
 
 # 导入ToolError（兼容两种导入方式）
@@ -96,8 +104,44 @@ async def _duckduckgo_search(
     """
     DuckDuckGo 搜索引擎实现
     
-    使用 DuckDuckGo HTML 接口进行搜索（无需API密钥）。
+    优先使用 duckduckgo-search 库（更可靠），如果不可用则回退到HTML解析。
     """
+    # 优先使用 duckduckgo-search 库
+    if DDGS is not None:
+        try:
+            import asyncio
+            from concurrent.futures import ThreadPoolExecutor
+            
+            # duckduckgo_search 是同步库，需要在线程池中运行
+            def _sync_search():
+                results = []
+                try:
+                    with DDGS() as ddgs:
+                        for result in ddgs.text(query, max_results=max_results):
+                            title = result.get("title", "")
+                            url = result.get("href", "")
+                            body = result.get("body", "")
+                            if title and url:
+                                results.append(f"{len(results)+1}. {title}\n   URL: {url}\n   摘要: {body}")
+                except Exception as e:
+                    raise ToolError(f"DuckDuckGo搜索失败: {e}") from e
+                return results
+            
+            # 在线程池中执行同步搜索
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor() as executor:
+                results = await loop.run_in_executor(executor, _sync_search)
+            
+            if not results:
+                return "未找到相关搜索结果"
+            
+            return "\n\n".join(results)
+        
+        except Exception as e:
+            # 如果duckduckgo_search失败，回退到HTML解析
+            pass
+    
+    # 回退到HTML解析方法（保持向后兼容）
     client = AsyncClient(timeout=timeout, follow_redirects=True)
     
     try:

@@ -34,15 +34,25 @@ tiktoken>=0.12.0
 # 加密库（用于API密钥加密存储）
 cryptography>=41.0.0
 
+# 时区支持（用于时间工具）
+pytz>=2024.1
+
 # HTML解析库（用于互联网访问工具）
 beautifulsoup4>=4.12.0
+
+# DuckDuckGo搜索库（用于web_search工具）
+# 优先使用ddgs（新版本），如果不可用则回退到duckduckgo-search
+ddgs>=9.0.0
+# duckduckgo-search>=8.0.0  # 已弃用，保留作为备用
 
 # 可选依赖：主流AI框架集成
 # LiteLLM - 统一多模型接口框架（可选）
 # litellm>=1.0.0
 
 # LangChain - AI应用开发框架（可选）
-# langchain>=0.1.0
+langchain>=0.1.0
+langchain-core>=0.1.0  # LangChain核心接口
+langchain-community>=0.0.20  # LangChain社区工具（包含DuckDuckGo搜索等）
 
 # LangGraph - 工作流编排框架（可选）
 # langgraph>=0.0.1

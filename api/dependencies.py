@@ -11,6 +11,9 @@ from core.llm.service import LLMService
 from core.agent.engine import AgentEngine
 from core.agent.collaboration import AgentOrchestrator
 from core.vision.service import VisionService
+# 导入抽象接口架构
+from core.interfaces.agent import IAgentEngine
+from core.composition.component_manager import ComponentManager
 
 
 # 全局服务实例缓存
@@ -69,15 +72,15 @@ async def get_llm_service(
 
 async def get_agent_engine(
     config_manager: ConfigManager = Depends(get_config_manager),
-) -> AgentEngine:
+) -> IAgentEngine:
     """
-    获取Agent引擎实例
+    获取Agent引擎实例（使用抽象接口架构）
     
     参数:
         config_manager: 配置管理器实例
     
     返回:
-        Agent引擎实例
+        Agent引擎实例（实现IAgentEngine接口，可能是Native/LangChain/LangGraph）
     
     异常:
         HTTPException: 服务初始化失败时抛出
@@ -87,9 +90,17 @@ async def get_agent_engine(
     if cache_key not in _service_cache:
         try:
             config = config_manager.config
-            engine = AgentEngine(config)
-            await engine.initialize()
+            
+            # 使用ComponentManager创建组件（支持LangChain实现）
+            component_manager = ComponentManager(config)
+            await component_manager.initialize()
+            
+            # 获取Agent引擎（根据配置自动选择实现类型）
+            engine = component_manager.agent_engine
             _service_cache[cache_key] = engine
+            
+            # 同时缓存ComponentManager以便后续使用
+            _service_cache["component_manager"] = component_manager
         except Exception as e:
             raise HTTPException(
                 status_code=500,

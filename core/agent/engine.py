@@ -25,6 +25,7 @@ from core.base.service import BaseService
 from core.llm.service import LLMService
 from core.agent.tools import ToolRegistry, ToolError
 from core.agent.tools.web_tools_registry import register_web_tools
+from core.agent.tools.time_tools import register_time_tools
 from core.agent.memory import ShortTermMemory, LongTermMemory
 from core.agent.planner import Planner, LLMPlanner, Plan, PlannerError
 
@@ -137,6 +138,15 @@ class AgentEngine(BaseService):
                         self.logger.info(f"已注册互联网工具: {', '.join(web_tools)}")
                 except Exception as e:
                     self.logger.error(f"注册互联网工具失败: {e}", exc_info=True)
+
+            # 注册时间工具
+            try:
+                register_time_tools(self._tool_registry, self._config)
+                registered_tools = self._tool_registry.list_tools()
+                if "get_current_time" in registered_tools:
+                    self.logger.info("✅ 已注册时间工具: get_current_time")
+            except Exception as e:
+                self.logger.error(f"注册时间工具失败: {e}", exc_info=True)
             
             self.logger.info("Agent引擎初始化完成")
         except Exception as e:

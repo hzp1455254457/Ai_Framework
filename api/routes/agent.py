@@ -26,6 +26,7 @@ from api.dependencies import get_agent_engine, get_agent_orchestrator
 from core.agent.engine import AgentEngine, AgentError
 from core.agent.tools import Tool, ToolError
 from core.agent.collaboration import AgentOrchestrator, DistributionStrategy, CollaborationError
+from core.interfaces.agent import IAgentEngine
 from fastapi import Request
 
 router = APIRouter()
@@ -78,7 +79,7 @@ if not agent_logger.handlers:
 @router.post("/task", response_model=AgentTaskResponse)
 async def run_task(
     request: AgentTaskRequest,
-    agent_engine: AgentEngine = Depends(get_agent_engine),
+    agent_engine: IAgentEngine = Depends(get_agent_engine),
 ) -> AgentTaskResponse:
     """
     Agent任务执行接口
@@ -136,7 +137,7 @@ async def run_task(
 @router.post("/tools/register", response_model=ToolRegistrationResponse)
 async def register_tool(
     request: ToolRegistrationRequest,
-    agent_engine: AgentEngine = Depends(get_agent_engine),
+    agent_engine: IAgentEngine = Depends(get_agent_engine),
 ) -> ToolRegistrationResponse:
     """
     工具注册接口
@@ -211,7 +212,7 @@ async def register_tool(
 
 @router.get("/tools", response_model=Dict[str, Any])
 async def list_tools(
-    agent_engine: AgentEngine = Depends(get_agent_engine),
+    agent_engine: IAgentEngine = Depends(get_agent_engine),
 ) -> Dict[str, Any]:
     """
     获取已注册的工具列表
@@ -299,7 +300,7 @@ async def save_frontend_logs(request: Request):
 @router.post("/memory/search", response_model=VectorSearchResponse)
 async def search_memory(
     request: VectorSearchRequest,
-    agent_engine: AgentEngine = Depends(get_agent_engine),
+    agent_engine: IAgentEngine = Depends(get_agent_engine),
 ) -> VectorSearchResponse:
     """
     向量语义搜索接口

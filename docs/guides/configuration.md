@@ -74,6 +74,42 @@ llm:
       api_key: ""
       base_url: "https://api.openai.com/v1"
     # ... 其他适配器配置
+  
+  # 实现选择（v2.0新增）
+  implementation: "native"  # 实现类型：native/litellm/langchain
+```
+
+### Agent配置
+
+```yaml
+agent:
+  # 基础配置
+  implementation: "native"  # 实现类型：native/langchain/langgraph
+  max_iterations: 10  # 最大迭代次数
+  timeout: 300  # Agent任务超时时间（秒）
+  enable_long_term_memory: false  # 是否启用长期记忆
+  enable_planner: false  # 是否启用任务规划器
+  max_messages: null  # 最大消息数（null表示无限制）
+  
+  # LangChain配置（当implementation为langchain时生效）
+  agent_type: "openai-functions"  # Agent类型：openai-functions/openai-multi-functions/react/self-ask-with-search
+  verbose: false  # 是否输出详细日志
+  return_intermediate_steps: true  # 是否返回中间步骤（工具调用信息）
+```
+
+### 工具配置
+
+```yaml
+tools:
+  implementation: "native"  # 实现类型：native/langchain
+```
+
+### 记忆配置
+
+```yaml
+memory:
+  implementation: "native"  # 实现类型：native/langchain
+  type: "buffer"  # 记忆类型：buffer/summary（LangChain实现时生效）
 ```
 
 ### 路由策略

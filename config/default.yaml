@@ -4,10 +4,11 @@ config_version: "2.0"
 
 # LLM服务配置
 llm:
+  implementation: "langchain"  # 实现类型：native/litellm/langchain（使用LangChain实现）
   api_key: ""  # API密钥，通过环境变量或环境配置文件设置（支持加密存储，使用 encrypted: 前缀）
   timeout: 30  # 请求超时时间（秒）
   max_retries: 3  # 最大重试次数
-  default_model: "qwen-turbo"  # 默认模型
+  default_model: "qwen-turbo-2024-11-01"  # 默认模型（新版API格式）
   default_adapter: ""  # 默认适配器名称（可选，不设置则自动选择）
   auto_discover_adapters: true  # 是否自动发现和注册适配器
   
@@ -74,19 +75,14 @@ llm:
   
   # 模型到适配器的映射（可选，会自动推断）
   model_adapter_mapping:
-    "gpt-3.5-turbo": "openai-adapter"
-    "gpt-4": "openai-adapter"
-    "gpt-4-turbo": "openai-adapter"
-    "gpt-4o": "openai-adapter"
-    "o1-preview": "openai-adapter"
-    "o1-mini": "openai-adapter"
+    # 通义千问模型（新格式）
     "qwen-turbo": "qwen-adapter"
+    "qwen-turbo-2024-11-01": "qwen-adapter"
     "qwen-plus": "qwen-adapter"
+    "qwen-plus-2024-11-01": "qwen-adapter"
     "qwen-max": "qwen-adapter"
-    "deepseek-chat": "deepseek-adapter"
-    "deepseek-coder": "deepseek-adapter"
-    "doubao-pro-4k": "doubao-adapter"
-    "doubao-pro-32k": "doubao-adapter"
+    "qwen-max-2024-11-01": "qwen-adapter"
+    "qwen-long": "qwen-adapter"
 
 # 缓存配置
 cache:
@@ -119,15 +115,21 @@ storage:
 
 # Agent配置
 agent:
+  implementation: "native"  # 实现类型：native/langchain/langgraph（临时使用原生实现，LangChain回调参数问题待修复）
   max_iterations: 10  # 最大迭代次数
   timeout: 300  # Agent任务超时时间（秒）
   enable_long_term_memory: false  # 是否启用长期记忆
   enable_planner: false  # 是否启用任务规划器
-  enable_langchain: false  # 是否启用LangChain集成（可选）
-  enable_langgraph: false  # 是否启用LangGraph集成（可选）
+  enable_langchain: false  # 是否启用LangChain集成（可选，已废弃，使用implementation替代）
+  enable_langgraph: false  # 是否启用LangGraph集成（可选，已废弃，使用implementation替代）
   max_messages: null  # 最大消息数（null表示无限制）
   
-  # LangChain配置（可选）
+  # LangChain配置（当implementation为langchain时生效）
+  agent_type: "openai-functions"  # Agent类型：openai-functions/openai-multi-functions/react/self-ask-with-search
+  verbose: false  # 是否输出详细日志
+  return_intermediate_steps: true  # 是否返回中间步骤（工具调用信息）
+  
+  # LangChain配置（可选，兼容旧配置）
   langchain:
     enabled: false  # 是否启用LangChain
     memory_type: "buffer"  # 记忆类型：buffer/summary
@@ -152,6 +154,16 @@ agent:
       timeout: 10.0  # 请求超时时间（秒）
       max_retries: 2  # 最大重试次数
       max_length: 10000  # 最大返回文本长度（字符数）
+
+# 工具配置
+tools:
+  implementation: "langchain"  # 实现类型：native/langchain（使用LangChain实现）
+  auto_register_langchain_tools: true  # 自动注册LangChain原生工具（如DuckDuckGo搜索）
+  allow_native_tools: false  # 是否允许注册自研工具（false表示只使用LangChain原生工具）
+
+# 记忆配置
+memory:
+  implementation: "langchain"  # 实现类型：native/langchain（使用LangChain实现）
 
 # 规划器配置
 planner:
@@ -190,6 +202,11 @@ vision:
     stable-diffusion-adapter:
       api_key: ""  # Stable Diffusion API密钥（支持加密存储）
       base_url: ""  # API端点URL
+
+# 运行时配置（抽象接口架构）
+runtime:
+  allow_switching: true  # 是否允许运行时切换实现（默认true）
+  hot_reload: false  # 是否支持热重载（默认false，暂未实现）
 
 # 加密配置（可选）
 # encryption_key: ""  # 加密主密钥（建议通过环境变量 ENCRYPTION_KEY 设置）

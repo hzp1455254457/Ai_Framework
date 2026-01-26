@@ -36,7 +36,34 @@
 - **CLI工具**：命令行接口
 - **Web前端**：Vue3前端应用
 
-### 2. 核心服务层（Core Service Layer）
+### 2. 抽象接口层（Abstract Interface Layer）
+
+定义统一的组件接口，支持多种实现灵活切换。
+
+**核心接口**：
+- `ILLMProvider`: LLM提供者接口
+- `IAgentEngine`: Agent引擎接口
+- `IToolManager`: 工具管理器接口
+- `IMemory`: 记忆管理接口
+- `IWorkflow`: 工作流接口
+- `IChain`: 链式调用接口
+
+**工厂层**：
+- `LLMFactory`: LLM提供者工厂
+- `AgentFactory`: Agent引擎工厂
+- `ToolFactory`: 工具管理器工厂
+- `MemoryFactory`: 记忆管理器工厂
+- `WorkflowFactory`: 工作流工厂
+
+**组合管理器**：
+- `ComponentManager`: 统一管理所有组件，支持运行时切换和组件组装
+
+**实现层**：
+- **Native实现**: 自研实现（默认）
+- **LangChain实现**: LangChain框架实现
+- **LangGraph实现**: LangGraph框架实现
+
+### 3. 核心服务层（Core Service Layer）
 
 核心业务逻辑，包括LLM服务、Agent引擎、视觉服务等。
 
@@ -71,6 +98,13 @@
 - `RANDOM`：随机
 
 #### 2.2 Agent引擎（AgentEngine）
+
+**抽象接口架构**：
+
+- **接口抽象**：通过 `IAgentEngine` 接口统一Agent引擎
+- **多种实现**：支持Native、LangChain、LangGraph三种实现
+- **灵活切换**：通过配置或运行时切换实现
+- **混合使用**：可以混合使用不同实现的组件
 
 **可选集成**：
 

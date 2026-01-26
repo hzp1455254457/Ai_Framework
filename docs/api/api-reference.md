@@ -40,6 +40,9 @@
   - [图像编辑接口](#3-图像编辑接口)
 - [Health API](#health-api)
   - [健康检查接口](#1-健康检查接口)
+- [抽象接口架构](#抽象接口架构)
+  - [实现选择](#实现选择)
+  - [配置说明](#配置说明)
 - [错误处理](#错误处理)
 - [使用示例](#使用示例)
 
@@ -1047,6 +1050,66 @@ async with httpx.AsyncClient() as client:
 
 ---
 
+## 抽象接口架构
+
+AI框架通过抽象接口架构支持多种实现（Native、LangChain、LangGraph），可以灵活切换和组装。
+
+### 实现选择
+
+通过配置文件选择实现类型：
+
+```yaml
+# config/default.yaml
+llm:
+  implementation: "native"  # native/litellm/langchain
+agent:
+  implementation: "native"  # native/langchain/langgraph
+tools:
+  implementation: "native"  # native/langchain
+memory:
+  implementation: "native"  # native/langchain
+```
+
+### 配置说明
+
+**LLM实现**：
+- `native`: 自研实现（默认，性能最优）
+- `litellm`: LiteLLM实现（统一多模型接口）
+- `langchain`: LangChain实现（支持LangChain生态）
+
+**Agent实现**：
+- `native`: 自研实现（默认）
+- `langchain`: LangChain实现（支持多种Agent类型）
+- `langgraph`: LangGraph实现（复杂工作流编排）
+
+**工具实现**：
+- `native`: 自研实现（默认）
+- `langchain`: LangChain实现（支持LangChain工具生态）
+
+**记忆实现**：
+- `native`: 自研实现（默认）
+- `langchain`: LangChain实现（支持LangChain记忆类型）
+
+### 混合使用
+
+可以混合使用不同的实现：
+
+```yaml
+# LangChain Agent + Native工具
+agent:
+  implementation: "langchain"
+tools:
+  implementation: "native"  # 会自动转换为LangChain工具
+```
+
+### 更多信息
+
+- [抽象接口架构使用指南](../guides/abstract-interface-usage.md)
+- [迁移指南](../guides/migration-to-abstract-interface.md)
+- [配置文档](../guides/configuration.md)
+
+---
+
 ## 错误处理
 
 ### 错误响应格式
@@ -1165,6 +1228,8 @@ asyncio.run(agent_task_example())
 ## 📚 相关文档
 
 - [快速开始指南](../guides/getting-started.md) - 新手上手指南
+- [抽象接口架构使用指南](../guides/abstract-interface-usage.md) - 如何切换和组装实现
+- [迁移指南](../guides/migration-to-abstract-interface.md) - 迁移到抽象接口架构
 - [架构方案文档](../../AI框架架构方案文档.md) - 架构设计参考
 - [API变更日志](api-changelog.md) - API变更历史
 
