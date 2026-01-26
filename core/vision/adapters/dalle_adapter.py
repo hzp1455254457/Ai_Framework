@@ -16,7 +16,7 @@
 
 import json
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from httpx import AsyncClient, HTTPError, TimeoutException
 from core.vision.adapters.base import BaseVisionAdapter, VisionAdapterError
 from core.base.health_check import HealthStatus, HealthCheckResult
@@ -80,6 +80,17 @@ class DALLEAdapter(BaseVisionAdapter):
     def provider(self) -> str:
         """服务提供商名称"""
         return "openai"
+    
+    def get_supported_operations(self) -> List[str]:
+        """
+        获取适配器支持的操作类型列表
+        
+        DALL-E适配器支持图像生成和编辑功能。
+        
+        返回:
+            支持的操作类型列表：["generate", "edit"]
+        """
+        return ["generate", "edit"]
     
     async def initialize(self, config: Optional[Dict[str, Any]] = None) -> None:
         """

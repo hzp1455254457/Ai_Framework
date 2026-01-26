@@ -6,8 +6,12 @@ Vision适配器模块
 
 from core.vision.adapters.base import BaseVisionAdapter
 from core.vision.adapters.dalle_adapter import DALLEAdapter
+from core.vision.adapters.qwen_vision_adapter import QwenVisionAdapter
+from core.vision.adapters.tongyi_wanxiang_adapter import TongYiWanXiangAdapter
 
 __all__ = [
     "BaseVisionAdapter",
     "DALLEAdapter",
+    "QwenVisionAdapter",
+    "TongYiWanXiangAdapter",
 ]

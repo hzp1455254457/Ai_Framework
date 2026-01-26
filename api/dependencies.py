@@ -4,6 +4,7 @@ API依赖注入模块
 提供FastAPI的依赖注入功能，包括服务实例获取等。
 """
 
+import os
 from typing import Dict, Any
 from fastapi import Depends, HTTPException
 from infrastructure.config.manager import ConfigManager
@@ -31,7 +32,6 @@ def get_config_manager() -> ConfigManager:
     
     if cache_key not in _service_cache:
         # 从环境变量获取环境配置，默认为dev
-        import os
         env = os.getenv("APP_ENV", "dev")
         _service_cache[cache_key] = ConfigManager.load(env=env)
     
@@ -173,7 +173,23 @@ async def get_vision_service(
             if "dalle-adapter" in adapters_config:
                 dalle_config = adapters_config["dalle-adapter"]
                 api_key = dalle_config.get("api_key", "")
-                
+
+                # 如果Vision配置中的api_key为空，尝试从其他来源获取
+                if not api_key:
+                    # 1. 尝试从环境变量获取
+                    api_key = os.getenv("OPENAI_API_KEY", "")
+                    
+                    # 2. 如果环境变量也没有，尝试从LLM配置中获取
+                    if not api_key:
+                        llm_config = config.get("llm", {})
+                        llm_adapters_config = llm_config.get("adapters", {})
+                        if "openai-adapter" in llm_adapters_config:
+                            api_key = llm_adapters_config["openai-adapter"].get("api_key", "")
+                    
+                    # 如果找到了api_key，更新配置
+                    if api_key:
+                        dalle_config["api_key"] = api_key
+
                 if api_key:
                     try:
                         from core.vision.adapters.dalle_adapter import DALLEAdapter
@@ -185,6 +201,106 @@ async def get_vision_service(
                         import logging
                         logger = logging.getLogger(__name__)
                         logger.warning(f"DALL-E适配器注册失败: {e}")
+
+            # 注册通义万相适配器
+            if "tongyi-wanxiang-adapter" in adapters_config:
+                wanx_config = adapters_config["tongyi-wanxiang-adapter"]
+                api_key = wanx_config.get("api_key", "")
+                
+                # 如果Vision配置中的api_key为空，尝试从其他来源获取
+                if not api_key:
+                    # 1. 尝试从环境变量获取
+                    api_key = os.getenv("QWEN_API_KEY", "") or os.getenv("DASHSCOPE_API_KEY", "")
+                    
+                    # 2. 如果环境变量也没有，尝试从LLM配置中获取
+                    if not api_key:
+                        llm_config = config.get("llm", {})
+                        llm_adapters_config = llm_config.get("adapters", {})
+                        if "qwen-adapter" in llm_adapters_config:
+                            api_key = llm_adapters_config["qwen-adapter"].get("api_key", "")
+                    
+                    # 如果找到了api_key，更新配置
+                    if api_key:
+                        wanx_config["api_key"] = api_key
+                
+                if api_key:
+                    try:
+                        from core.vision.adapters.tongyi_wanxiang_adapter import TongYiWanXiangAdapter
+                        wanx_adapter = TongYiWanXiangAdapter(wanx_config)
+                        await wanx_adapter.initialize(wanx_config)
+                        service.register_adapter(wanx_adapter)
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"通义万相适配器注册失败: {e}")
+
+            # 注册Qwen-Vision适配器
+            if "qwen-vision-adapter" in adapters_config:
+                qwen_vision_config = adapters_config["qwen-vision-adapter"]
+                enabled = qwen_vision_config.get("enabled", True)
+                api_key = qwen_vision_config.get("api_key", "")
+
+                # 如果Vision配置中的api_key为空，尝试从其他来源获取
+                if not api_key:
+                    # 1. 尝试从环境变量获取
+                    api_key = os.getenv("QWEN_API_KEY", "")
+                    
+                    # 2. 如果环境变量也没有，尝试从LLM配置中获取
+                    if not api_key:
+                        llm_config = config.get("llm", {})
+                        llm_adapters_config = llm_config.get("adapters", {})
+                        if "qwen-adapter" in llm_adapters_config:
+                            api_key = llm_adapters_config["qwen-adapter"].get("api_key", "")
+                    
+                    # 如果找到了api_key，更新配置
+                    if api_key:
+                        qwen_vision_config["api_key"] = api_key
+
+                if enabled and api_key:
+                    try:
+                        from core.vision.adapters.qwen_vision_adapter import QwenVisionAdapter
+                        qwen_vision_adapter = QwenVisionAdapter(qwen_vision_config)
+                        await qwen_vision_adapter.initialize(qwen_vision_config)
+                        service.register_adapter(qwen_vision_adapter)
+                    except Exception as e:
+                        # 适配器注册失败不影响服务启动，只记录日志
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Qwen-Vision适配器注册失败: {e}")
+            
+            # 注册TongYi-WanXiang适配器
+            if "tongyi-wanxiang-adapter" in adapters_config:
+                tongyi_wanxiang_config = adapters_config["tongyi-wanxiang-adapter"]
+                enabled = tongyi_wanxiang_config.get("enabled", True)
+                api_key = tongyi_wanxiang_config.get("api_key", "")
+
+                # 如果Vision配置中的api_key为空，尝试从其他来源获取
+                if not api_key:
+                    # 1. 尝试从环境变量获取
+                    api_key = os.getenv("QWEN_API_KEY", "")
+                    
+                    # 2. 如果环境变量也没有，尝试从LLM配置中获取
+                    if not api_key:
+                        llm_config = config.get("llm", {})
+                        llm_adapters_config = llm_config.get("adapters", {})
+                        if "qwen-adapter" in llm_adapters_config:
+                            api_key = llm_adapters_config["qwen-adapter"].get("api_key", "")
+                    
+                    # 如果找到了api_key，更新配置
+                    if api_key:
+                        tongyi_wanxiang_config["api_key"] = api_key
+
+                if enabled and api_key:
+                    try:
+                        from core.vision.adapters.tongyi_wanxiang_adapter import TongYiWanXiangAdapter
+                        tongyi_wanxiang_adapter = TongYiWanXiangAdapter(tongyi_wanxiang_config)
+                        await tongyi_wanxiang_adapter.initialize(tongyi_wanxiang_config)
+                        service.register_adapter(tongyi_wanxiang_adapter)
+                    except Exception as e:
+                        # 适配器注册失败不影响服务启动，只记录日志
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"TongYi-WanXiang适配器注册失败: {e}")
             
             _service_cache[cache_key] = service
         except Exception as e:

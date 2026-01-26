@@ -139,6 +139,188 @@ vision:
 3. **Q: 图像编辑功能如何使用？**
    - A: 使用DALL-E 2模型，调用`edit_image()`方法，需要提供原始图像和编辑提示词。
 
+## QwenVisionAdapter（通义千问Vision适配器）
+
+Qwen-Vision适配器实现了阿里云通义千问Qwen-VL视觉模型的集成，支持图像理解、OCR文字识别和物体识别等功能。
+
+**特性**：
+- 支持Qwen-VL、Qwen-VL-Plus、Qwen-VL-Max模型
+- 支持通用图像理解（图像内容描述）
+- 支持OCR光学字符识别（提取图片中的文字）
+- 支持物体识别（识别图片中的物体和场景）
+- 错误处理和重试机制
+- 与现有Vision服务无缝集成
+
+**使用示例**：
+
+```python
+from core.vision.adapters.qwen_vision_adapter import QwenVisionAdapter
+from core.vision.models import ImageAnalyzeRequest, AnalyzeType
+
+# 创建适配器
+adapter = QwenVisionAdapter({
+    "api_key": "your-qwen-api-key",
+    "model": "qwen-vl-plus"
+})
+await adapter.initialize()
+
+# 通用图像理解
+request = ImageAnalyzeRequest(
+    image="https://example.com/image.jpg",
+    analyze_type=AnalyzeType.IMAGE_UNDERSTANDING
+)
+response = await adapter.analyze_image(request)
+print(f"图像描述: {response.description}")
+
+# OCR文字识别
+ocr_request = ImageAnalyzeRequest(
+    image="https://example.com/document.jpg",
+    analyze_type=AnalyzeType.OCR
+)
+ocr_response = await adapter.analyze_image(ocr_request)
+print(f"识别文字: {ocr_response.text}")
+
+# 物体识别
+object_request = ImageAnalyzeRequest(
+    image="https://example.com/scene.jpg",
+    analyze_type=AnalyzeType.OBJECT_DETECTION
+)
+object_response = await adapter.analyze_image(object_request)
+print(f"识别物体: {object_response.objects}")
+```
+
+**配置说明**：
+
+在 `config/default.yaml` 中配置：
+
+```yaml
+vision:
+  adapters:
+    qwen-vision-adapter:
+      enabled: true
+      api_key: "your-qwen-api-key"  # 支持加密存储或从环境变量读取
+      base_url: "https://dashscope.aliyuncs.com/api/v1"  # 可选，默认通义千问API端点
+      model: "qwen-vl-plus"  # 默认模型（qwen-vl / qwen-vl-plus / qwen-vl-max）
+      timeout: 60  # 请求超时时间（秒）
+```
+
+**模型对比**：
+
+| 特性 | qwen-vl | qwen-vl-plus | qwen-vl-max |
+|------|---------|--------------|-------------|
+| 图像理解 | ✅ 支持 | ✅ 支持 | ✅ 支持 |
+| OCR识别 | ✅ 支持 | ✅ 支持 | ✅ 支持 |
+| 物体识别 | ✅ 支持 | ✅ 支持 | ✅ 支持 |
+| 中文优化 | 基础 | 增强 | 增强 |
+| 上下文长度 | 短 | 中等 | 长 |
+| 价格 | 低 | 中 | 高 |
+
+**注意事项**：
+
+1. **Q: 通义千问Vision模型支持图像生成吗？**
+   - A: 不支持。通义千问Vision模型专注于图像分析（理解、OCR、物体识别）。如需图像生成，请使用DALL-E适配器。
+
+2. **Q: 如何选择模型？**
+   - A: `qwen-vl-plus` 是最均衡的选择，支持大部分场景。如果需要更长上下文或更高质量，可以选择 `qwen-vl-max`。
+
+3. **Q: 支持base64编码的图片吗？**
+   - A: 支持。适配器会自动检测图片格式，支持URL、base64和data URL格式。
+
+## TongYiWanXiangAdapter（通义万相图像生成适配器）
+
+TongYi-WanXiang适配器实现了阿里云通义万相图像生成服务的集成，支持文本到图像生成（文生图）。
+
+**特性**：
+- 支持通义万相图像生成API（wanx-v1模型）
+- 支持多种图像尺寸（1024x1024、1024x1792、1792x1024）
+- 支持API密钥复用（与通义千问共用DashScope API）
+- 错误处理和重试机制
+- 与现有Vision服务无缝集成
+
+**使用示例**：
+
+```python
+from core.vision.adapters.tongyi_wanxiang_adapter import TongYiWanXiangAdapter
+from core.vision.models import ImageGenerateRequest, ImageSize
+
+# 创建适配器（API密钥可留空，会从Qwen配置或环境变量自动获取）
+adapter = TongYiWanXiangAdapter({
+    "api_key": "",  # 可留空，会自动复用Qwen的API密钥
+    "model": "wanx-v1"
+})
+await adapter.initialize()
+
+# 生成图像
+request = ImageGenerateRequest(
+    prompt="一只可爱的橘猫坐在窗台上，阳光洒在它身上",
+    size=ImageSize.SQUARE_1024,
+)
+response = await adapter.generate_image(request)
+print(f"生成的图像URL: {response.images[0]}")
+print(f"任务ID: {response.metadata['task_id']}")
+```
+
+**配置说明**：
+
+在 `config/default.yaml` 中配置：
+
+```yaml
+vision:
+  adapters:
+    tongyi-wanxiang-adapter:
+      enabled: true
+      api_key: ""  # 可留空，会从环境变量QWEN_API_KEY或qwen-adapter配置自动获取
+      base_url: "https://dashscope.aliyuncs.com/api/v1"  # 可选，默认DashScope API端点
+      model: "wanx-v1"  # 默认模型
+      timeout: 120  # 请求超时时间（秒，图像生成需要更长时间）
+```
+
+**API密钥复用**：
+
+通义万相与通义千问使用相同的DashScope API，因此可以复用API密钥：
+
+1. **方式1**：环境变量
+   ```bash
+   export QWEN_API_KEY="your-api-key"
+   ```
+
+2. **方式2**：LLM配置（qwen-adapter）
+   ```yaml
+   llm:
+     adapters:
+       qwen-adapter:
+         api_key: "your-api-key"  # 这个密钥会自动被通义万相复用
+   ```
+
+**支持的功能**：
+
+|| 功能 | 支持情况 |
+|------|------|---------|
+| 图像生成 | 文生图 | ✅ 支持 |
+| 图像分析 | 图像理解、OCR | ❌ 不支持 |
+| 图像编辑 | 图像编辑 | ❌ 不支持 |
+
+**支持的图像尺寸**：
+
+|| 尺寸 | 比例 |
+|------|------|------|
+| 1024x1024 | 1:1 正方形 |
+| 1024x1792 | 9:16 竖屏 |
+| 1792x1024 | 16:9 横屏 |
+
+**注意事项**：
+
+1. **Q: 通义万相支持图像分析吗？**
+   - A: 不支持。通义万相专注于图像生成。如需图像分析，请使用Qwen-Vision适配器。
+
+2. **Q: 如何选择使用DALL-E还是通义万相？**
+   - A: 
+     - **通义万相**：中国用户友好，配置简单（可复用Qwen密钥），价格相对较低
+     - **DALL-E**：国际通用，质量稳定，支持图像编辑功能
+
+3. **Q: 通义万相支持图像编辑吗？**
+   - A: 不支持。如需图像编辑，请使用DALL-E 2模型。
+
 ## 📦 依赖关系
 
 ### 依赖

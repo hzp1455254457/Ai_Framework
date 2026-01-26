@@ -1,6 +1,6 @@
 # agent-engine Specification Delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Complete LangChain Agent Implementation
 系统 SHALL 提供完整的LangChain Agent引擎实现，支持多种Agent类型和完整的工具/记忆转换。

@@ -1,6 +1,6 @@
 # llm-service Specification Delta
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: LangChain LLM Provider Implementation
 系统 SHALL 提供完整的LangChain LLM提供者实现，支持将ILLMProvider转换为LangChain LLM。

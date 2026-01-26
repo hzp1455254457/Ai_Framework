@@ -15,7 +15,7 @@
 """
 
 from abc import abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from core.base.adapter import BaseAdapter
 from core.vision.models import (
     ImageGenerateRequest,
@@ -64,6 +64,50 @@ class BaseVisionAdapter(BaseAdapter):
             服务提供商的名称（如 "dalle", "stable-diffusion", "midjourney"）
         """
         pass
+    
+    def get_supported_operations(self) -> List[str]:
+        """
+        获取适配器支持的操作类型列表
+        
+        返回适配器支持的操作类型，如 ["generate", "analyze", "edit"]。
+        如果适配器未实现此方法，将回退到基于名称的推断逻辑。
+        
+        返回:
+            支持的操作类型列表，可能的值：
+            - "generate": 图像生成
+            - "analyze": 图像分析
+            - "edit": 图像编辑
+        
+        示例:
+            >>> adapter.get_supported_operations()
+            ["generate", "edit"]
+        """
+        # 默认实现：尝试通过检查方法是否存在来推断支持的操作
+        # 子类应该重写此方法以明确声明支持的操作
+        supported = []
+        if hasattr(self, 'generate_image'):
+            try:
+                # 检查是否是抽象方法（未实现）
+                if not getattr(self.generate_image, '__isabstractmethod__', False):
+                    supported.append("generate")
+            except AttributeError:
+                pass
+        
+        if hasattr(self, 'analyze_image'):
+            try:
+                if not getattr(self.analyze_image, '__isabstractmethod__', False):
+                    supported.append("analyze")
+            except AttributeError:
+                pass
+        
+        if hasattr(self, 'edit_image'):
+            try:
+                if not getattr(self.edit_image, '__isabstractmethod__', False):
+                    supported.append("edit")
+            except AttributeError:
+                pass
+        
+        return supported
     
     @abstractmethod
     async def generate_image(

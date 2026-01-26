@@ -284,6 +284,24 @@
   - 说明：实现了DALLEAdapter，支持DALL-E 2和DALL-E 3模型，实现了图像生成和编辑功能，15个单元测试全部通过
   - DALL-E 2/3支持
   - 图像生成API
+
+- [x] **通义万相适配器** (P1) - `core/vision/adapters/tongyi_wanxiang_adapter.py`
+  - 通义万相图像生成API
+  - wanx-v1模型支持
+  - 多种图像尺寸支持（1024x1024、1024x1792、1792x1024）
+  - API密钥复用（与通义千问共用DashScope API）
+  - 完成日期：2026-01-26
+  - 说明：实现了TongYiWanXiangAdapter，支持通义万相图像生成服务，复用DashScope API，与现有Vision服务无缝集成，18个单元测试全部通过
+  - 图像生成功能
+  - API密钥自动获取
+
+- [x] **通义千问Vision适配器** (P1) - `core/vision/adapters/qwen_vision_adapter.py`
+  - 通义千问Qwen-VL视觉模型
+  - 支持qwen-vl、qwen-vl-plus、qwen-vl-max模型
+  - 图像理解、OCR、物体识别功能
+  - API密钥自动获取（从环境变量或Qwen配置）
+  - 完成日期：2026-01-26
+  - 说明：实现了QwenVisionAdapter，支持通义千问视觉模型进行图像分析，20个单元测试通过（87%），与现有Vision服务无缝集成
   
 - [ ] **Stable Diffusion适配器** (P2) - `core/vision/adapters/stable_diffusion_adapter.py`
   - Stable Diffusion API

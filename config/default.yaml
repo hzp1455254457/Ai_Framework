@@ -202,6 +202,18 @@ vision:
     stable-diffusion-adapter:
       api_key: ""  # Stable Diffusion API密钥（支持加密存储）
       base_url: ""  # API端点URL
+    qwen-vision-adapter:
+      enabled: true  # 是否启用此适配器
+      api_key: ""  # 通义千问API密钥（支持加密存储，从环境变量 QWEN_API_KEY 读取）
+      base_url: "https://dashscope.aliyuncs.com/api/v1"  # 可选，默认通义千问API端点
+      model: "qwen-vl-plus"  # 默认模型（qwen-vl / qwen-vl-plus / qwen-vl-max）
+      timeout: 60  # 请求超时时间（秒）
+    tongyi-wanxiang-adapter:
+      enabled: true  # 是否启用此适配器
+      api_key: ""  # 通义万相API密钥（支持加密存储，从环境变量 QWEN_API_KEY 读取，或复用qwen-adapter配置）
+      base_url: "https://dashscope.aliyuncs.com/api/v1"  # 可选，默认通义万相API端点（与通义千问相同）
+      model: "wanx-v1"  # 默认模型（wanx-v1）
+      timeout: 120  # 请求超时时间（秒，图像生成需要更长时间）
 
 # 运行时配置（抽象接口架构）
 runtime:

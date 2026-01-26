@@ -98,14 +98,20 @@ class VisionService(BaseService):
         self._adapters[adapter.name] = adapter
         self.logger.info(f"手动注册适配器: {adapter.name} (provider: {adapter.provider})")
     
-    def _get_adapter(self, adapter_name: Optional[str] = None) -> BaseVisionAdapter:
+    def _get_adapter(
+        self, 
+        adapter_name: Optional[str] = None,
+        operation: Optional[str] = None,
+    ) -> BaseVisionAdapter:
         """
         获取适配器
         
         根据适配器名称获取适配器实例，如果未指定则使用默认适配器。
+        如果指定了operation，会优先选择支持该功能的适配器。
         
         参数:
             adapter_name: 适配器名称（可选）
+            operation: 操作类型（"generate", "analyze", "edit"），用于智能选择适配器
         
         返回:
             适配器实例
@@ -121,6 +127,42 @@ class VisionService(BaseService):
             if adapter_name not in self._adapters:
                 raise VisionError(f"适配器不存在: {adapter_name}")
             return self._adapters[adapter_name]
+        
+        # 如果指定了操作类型，尝试找到支持该功能的适配器
+        if operation:
+            # 优先使用默认适配器（如果支持该操作）
+            if self._default_adapter and self._default_adapter in self._adapters:
+                default_adapter = self._adapters[self._default_adapter]
+                try:
+                    supported_ops = default_adapter.get_supported_operations()
+                    if operation in supported_ops:
+                        return default_adapter
+                except (AttributeError, NotImplementedError):
+                    # 如果适配器未实现get_supported_operations()，回退到名称推断
+                    if operation in ("generate", "edit") and "dalle" in self._default_adapter.lower():
+                        return default_adapter
+                    if operation == "analyze" and ("qwen" in self._default_adapter.lower() or "vision" in self._default_adapter.lower()):
+                        return default_adapter
+            
+            # 查询所有适配器的支持能力，优先选择支持该操作的适配器
+            for name, adapter in self._adapters.items():
+                try:
+                    supported_ops = adapter.get_supported_operations()
+                    if operation in supported_ops:
+                        self.logger.debug(f"选择适配器 {name}，支持操作: {supported_ops}")
+                        return adapter
+                except (AttributeError, NotImplementedError):
+                    # 如果适配器未实现get_supported_operations()，回退到名称推断
+                    if operation in ("generate", "edit") and "dalle" in name.lower():
+                        self.logger.debug(f"通过名称推断选择适配器 {name}（回退逻辑）")
+                        return adapter
+                    if operation == "analyze" and ("qwen" in name.lower() or "vision" in name.lower()):
+                        self.logger.debug(f"通过名称推断选择适配器 {name}（回退逻辑）")
+                        return adapter
+            
+            # 如果找不到支持该操作的适配器，使用第一个（保持向后兼容）
+            self.logger.warning(f"未找到支持 {operation} 操作的适配器，使用第一个可用适配器")
+            return next(iter(self._adapters.values()))
         
         # 使用默认适配器
         if self._default_adapter and self._default_adapter in self._adapters:
@@ -142,7 +184,7 @@ class VisionService(BaseService):
         
         参数:
             request: 图像生成请求
-            adapter_name: 适配器名称（可选，默认使用配置的默认适配器）
+            adapter_name: 适配器名称（可选，默认自动选择支持生成的适配器）
             **kwargs: 其他适配器特定参数
         
         返回:
@@ -157,7 +199,8 @@ class VisionService(BaseService):
             >>> response = await service.generate_image(request)
             >>> print(f"生成了 {response.count} 张图像")
         """
-        adapter = self._get_adapter(adapter_name)
+        # 智能选择适配器：优先选择支持generate的适配器
+        adapter = self._get_adapter(adapter_name, operation="generate")
         
         self.logger.debug(f"发送图像生成请求，适配器: {adapter.name}, 提示词: {request.prompt[:50]}...")
         
@@ -166,6 +209,23 @@ class VisionService(BaseService):
             self.logger.debug(f"图像生成完成，生成了 {response.count} 张图像")
             return response
         except Exception as e:
+            error_msg = str(e).lower()
+            # 如果适配器不支持该功能，尝试其他适配器
+            if "不支持" in str(e) or "not support" in error_msg or "does not support" in error_msg:
+                self.logger.warning(f"适配器 {adapter.name} 不支持图像生成，尝试其他适配器...")
+                # 尝试其他适配器
+                for name, other_adapter in self._adapters.items():
+                    if name != adapter.name and "dalle" in name.lower():
+                        try:
+                            self.logger.info(f"尝试使用适配器: {other_adapter.name}")
+                            response = await other_adapter.generate_image(request, **kwargs)
+                            self.logger.debug(f"图像生成完成，生成了 {response.count} 张图像")
+                            return response
+                        except Exception as retry_e:
+                            self.logger.debug(f"适配器 {other_adapter.name} 也失败: {retry_e}")
+                            continue
+                # 如果所有适配器都失败，抛出原始错误
+                raise VisionError(f"没有找到支持图像生成的适配器。错误: {e}") from e
             self.logger.error(f"图像生成失败: {e}", exc_info=True)
             raise VisionError(f"图像生成失败: {e}") from e
     
@@ -182,7 +242,7 @@ class VisionService(BaseService):
         
         参数:
             request: 图像分析请求
-            adapter_name: 适配器名称（可选，默认使用配置的默认适配器）
+            adapter_name: 适配器名称（可选，默认自动选择支持分析的适配器）
             **kwargs: 其他适配器特定参数
         
         返回:
@@ -197,7 +257,8 @@ class VisionService(BaseService):
             >>> response = await service.analyze_image(request)
             >>> print(f"识别文本: {response.text}")
         """
-        adapter = self._get_adapter(adapter_name)
+        # 智能选择适配器：优先选择支持analyze的适配器
+        adapter = self._get_adapter(adapter_name, operation="analyze")
         
         self.logger.debug(f"发送图像分析请求，适配器: {adapter.name}, 分析类型: {request.analyze_type.value}")
         
@@ -206,6 +267,23 @@ class VisionService(BaseService):
             self.logger.debug(f"图像分析完成，模型: {response.model}")
             return response
         except Exception as e:
+            error_msg = str(e).lower()
+            # 如果适配器不支持该功能，尝试其他适配器
+            if "不支持" in str(e) or "not support" in error_msg or "does not support" in error_msg:
+                self.logger.warning(f"适配器 {adapter.name} 不支持图像分析，尝试其他适配器...")
+                # 尝试其他适配器
+                for name, other_adapter in self._adapters.items():
+                    if name != adapter.name and ("qwen" in name.lower() or "vision" in name.lower()):
+                        try:
+                            self.logger.info(f"尝试使用适配器: {other_adapter.name}")
+                            response = await other_adapter.analyze_image(request, **kwargs)
+                            self.logger.debug(f"图像分析完成，模型: {response.model}")
+                            return response
+                        except Exception as retry_e:
+                            self.logger.debug(f"适配器 {other_adapter.name} 也失败: {retry_e}")
+                            continue
+                # 如果所有适配器都失败，抛出原始错误
+                raise VisionError(f"没有找到支持图像分析的适配器。错误: {e}") from e
             self.logger.error(f"图像分析失败: {e}", exc_info=True)
             raise VisionError(f"图像分析失败: {e}") from e
     
@@ -222,7 +300,7 @@ class VisionService(BaseService):
         
         参数:
             request: 图像编辑请求
-            adapter_name: 适配器名称（可选，默认使用配置的默认适配器）
+            adapter_name: 适配器名称（可选，默认自动选择支持编辑的适配器）
             **kwargs: 其他适配器特定参数
         
         返回:
@@ -240,7 +318,8 @@ class VisionService(BaseService):
             >>> response = await service.edit_image(request)
             >>> print(f"生成了 {response.count} 张编辑后的图像")
         """
-        adapter = self._get_adapter(adapter_name)
+        # 智能选择适配器：优先选择支持edit的适配器
+        adapter = self._get_adapter(adapter_name, operation="edit")
         
         self.logger.debug(f"发送图像编辑请求，适配器: {adapter.name}, 提示词: {request.prompt[:50]}...")
         
@@ -249,6 +328,23 @@ class VisionService(BaseService):
             self.logger.debug(f"图像编辑完成，生成了 {response.count} 张图像")
             return response
         except Exception as e:
+            error_msg = str(e).lower()
+            # 如果适配器不支持该功能，尝试其他适配器
+            if "不支持" in str(e) or "not support" in error_msg or "does not support" in error_msg:
+                self.logger.warning(f"适配器 {adapter.name} 不支持图像编辑，尝试其他适配器...")
+                # 尝试其他适配器
+                for name, other_adapter in self._adapters.items():
+                    if name != adapter.name and "dalle" in name.lower():
+                        try:
+                            self.logger.info(f"尝试使用适配器: {other_adapter.name}")
+                            response = await other_adapter.edit_image(request, **kwargs)
+                            self.logger.debug(f"图像编辑完成，生成了 {response.count} 张图像")
+                            return response
+                        except Exception as retry_e:
+                            self.logger.debug(f"适配器 {other_adapter.name} 也失败: {retry_e}")
+                            continue
+                # 如果所有适配器都失败，抛出原始错误
+                raise VisionError(f"没有找到支持图像编辑的适配器。错误: {e}") from e
             self.logger.error(f"图像编辑失败: {e}", exc_info=True)
             raise VisionError(f"图像编辑失败: {e}") from e
     
