@@ -290,8 +290,9 @@
   - wanx-v1模型支持
   - 多种图像尺寸支持（1024x1024、1024x1792、1792x1024）
   - API密钥复用（与通义千问共用DashScope API）
+  - Base64本地文件上传支持 (自动转换为URL)
   - 完成日期：2026-01-26
-  - 说明：实现了TongYiWanXiangAdapter，支持通义万相图像生成服务，复用DashScope API，与现有Vision服务无缝集成，18个单元测试全部通过
+  - 说明：实现了TongYiWanXiangAdapter，支持通义万相图像生成服务，复用DashScope API，与现有Vision服务无缝集成，18个单元测试全部通过。新增支持Base64本地图片上传功能，解决API仅支持URL的问题。
   - 图像生成功能
   - API密钥自动获取
 
