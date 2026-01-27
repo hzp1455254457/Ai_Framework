@@ -16,9 +16,31 @@
 
 import json
 import logging
+import base64
+import tempfile
+import os
+import uuid
+from pathlib import Path
 from typing import Dict, Any, Optional, List
 from httpx import AsyncClient, HTTPError, TimeoutException
 from core.vision.adapters.base import BaseVisionAdapter, VisionAdapterError
+
+try:
+    import dashscope
+    # 尝试导入 DashScope Files API (复数形式)
+    try:
+        from dashscope import Files as DashScopeFile
+    except ImportError:
+        # 尝试子模块路径
+        try:
+            from dashscope.files import Files as DashScopeFile
+        except ImportError:
+            DashScopeFile = None
+            
+except ImportError:
+    dashscope = None
+    DashScopeFile = None
+
 from core.base.health_check import HealthStatus, HealthCheckResult
 from core.vision.models import (
     ImageGenerateRequest,
@@ -272,6 +294,112 @@ class TongYiWanXiangAdapter(BaseVisionAdapter):
 
         return request_data
 
+    def _upload_image_to_dashscope(self, base64_data: str) -> str:
+        """
+        上传Base64图片到DashScope临时存储
+        """
+        if not dashscope:
+            raise VisionAdapterError("DashScope SDK未安装，无法处理Base64图片上传")
+        
+        if not DashScopeFile:
+            raise VisionAdapterError("无法导入 DashScope Files API，请检查 SDK 版本")
+            
+        try:
+            # 处理data URI scheme
+            if "," in base64_data:
+                header, encoded = base64_data.split(",", 1)
+            else:
+                encoded = base64_data
+                
+            # 解码
+            try:
+                image_data = base64.b64decode(encoded)
+            except Exception:
+                raise VisionAdapterError("无效的Base64数据")
+            
+            # 创建临时文件
+            # 使用 .png 作为默认后缀，实际DashScope支持多种格式
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+                temp_file.write(image_data)
+                temp_file_path = temp_file.name
+                
+            try:
+                # 上传到DashScope
+                dashscope.api_key = self._api_key
+                # model参数可选，这里指定 wanx-v1 以确保兼容性，或者不指定
+                # 必须指定 purpose="inference" 以避免SDK尝试将其作为fine-tune文件(JSONL)进行UTF-8解码验证
+                result = DashScopeFile.upload(
+                    temp_file_path, 
+                    description="temp_image_for_wanxiang", 
+                    purpose="inference",
+                    model="wanx-v1"
+                )
+                
+                # 检查结果
+                # DashScope API 返回格式可能不同，尝试多种方式提取URL
+                # 注意：DashScopeAPIResponse 是 dict 的子类 (DictMixin)，但 __getattr__ 会抛出 KeyError 而不是 AttributeError
+                # 因此必须优先使用 .get() 方法，避免使用 hasattr 或 getattr 或直接属性访问
+                
+                url = None
+                output = None
+
+                # 1. 安全获取 output
+                if isinstance(result, dict):
+                    output = result.get('output')
+                else:
+                    try:
+                        output = getattr(result, 'output', None)
+                    except Exception:
+                        pass
+                
+                # 2. 从 output 中提取 URL
+                if output:
+                    if isinstance(output, dict):
+                        url = output.get('url') or output.get('uploaded_file_url')
+                    else:
+                        # 如果 output 是对象不是 dict，尝试安全获取
+                        try:
+                            # 捕获所有异常，包括 KeyError (DictMixin)
+                            url = getattr(output, 'url', None) or getattr(output, 'uploaded_file_url', None)
+                        except Exception:
+                            pass
+                
+                # 3. 如果 output 中没有，尝试从 result 顶层获取
+                if not url:
+                    if isinstance(result, dict):
+                        url = result.get('url') or result.get('uploaded_file_url')
+                    else:
+                        try:
+                            url = getattr(result, 'url', None)
+                        except Exception:
+                            pass
+
+                if url:
+                    return url
+                
+                # 详细错误日志
+                self.logger.error(f"DashScope上传结果不包含URL: {result}")
+                # 同时也打印到控制台以防logger未显示
+                print(f"DashScope上传失败详情: {result}")
+                
+                error_msg = "上传图片到DashScope失败: 未返回URL"
+                if hasattr(result, 'code') and result.code:
+                    error_msg += f" (Code: {result.code})"
+                if hasattr(result, 'message') and result.message:
+                    error_msg += f" (Message: {result.message})"
+                    
+                raise VisionAdapterError(error_msg)
+                
+            finally:
+                # 清理临时文件
+                if os.path.exists(temp_file_path):
+                    os.unlink(temp_file_path)
+                    
+        except Exception as e:
+            if isinstance(e, VisionAdapterError):
+                raise
+            raise VisionAdapterError(f"处理Base64图片上传失败: {str(e)}") from e
+
     async def edit_image(
         self,
         request: ImageEditRequest,
@@ -311,12 +439,17 @@ class TongYiWanXiangAdapter(BaseVisionAdapter):
             # 验证图像输入
             image_input = request.image
             if not image_input.startswith(("http://", "https://")):
-                if len(image_input) > 1024: # 假设Base64肯定很长
-                    raise VisionAdapterError(
-                        "通义万相API仅支持公开可访问的图像URL (http/https)。"
-                        "暂不支持Base64或本地文件直接上传，请提供有效的图像URL。"
-                    )
-                raise VisionAdapterError("无效的图像URL，必须以 http:// 或 https:// 开头")
+                # 尝试作为Base64处理
+                try:
+                    self.logger.info("检测到非URL图像输入，尝试作为Base64上传...")
+                    image_input = self._upload_image_to_dashscope(image_input)
+                    self.logger.info(f"图像上传成功，URL: {image_input}")
+                except Exception as e:
+                    if len(image_input) > 1024: 
+                        raise VisionAdapterError(
+                            f"图像上传失败: {str(e)}。通义万相API仅支持URL或有效的Base64。"
+                        )
+                    raise VisionAdapterError("无效的图像URL，必须以 http:// 或 https:// 开头")
 
             # 构建请求体
             # 注意：通义万相图像编辑使用 image2image 接口
@@ -330,10 +463,14 @@ class TongYiWanXiangAdapter(BaseVisionAdapter):
             if request.mask:
                 mask_input = request.mask
                 if not mask_input.startswith(("http://", "https://")):
-                     raise VisionAdapterError(
-                        "通义万相API仅支持公开可访问的遮罩图像URL (http/https)。"
-                        "暂不支持Base64或本地文件直接上传。"
-                    )
+                    try:
+                        self.logger.info("检测到非URL遮罩输入，尝试作为Base64上传...")
+                        mask_input = self._upload_image_to_dashscope(mask_input)
+                        self.logger.info(f"遮罩上传成功，URL: {mask_input}")
+                    except Exception as e:
+                         raise VisionAdapterError(
+                            f"遮罩上传失败: {str(e)}。请提供有效的URL或Base64。"
+                        )
                 input_data["mask_image_url"] = mask_input
                 
             request_data = {
