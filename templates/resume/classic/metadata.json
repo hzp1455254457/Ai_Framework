@@ -1,0 +1,12 @@
+{
+  "name": "经典模板",
+  "description": "适合传统行业的经典简历模板",
+  "category": "经典",
+  "supported_sections": [
+    "personal_info",
+    "education",
+    "work_experience",
+    "project_experience",
+    "skills"
+  ]
+}

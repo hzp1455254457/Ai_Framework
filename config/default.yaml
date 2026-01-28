@@ -220,6 +220,21 @@ runtime:
   allow_switching: true  # 是否允许运行时切换实现（默认true）
   hot_reload: false  # 是否支持热重载（默认false，暂未实现）
 
+# Resume服务配置
+resume:
+  # 模板配置
+  template_dir: "templates/resume"  # 模板目录
+  # 输出配置
+  output_dir: "output/resume"  # 输出目录
+  # 解析器配置
+  max_file_size: 10485760  # 最大文件大小（10MB，单位：字节）
+  # 优化器配置
+  optimizer_model: "qwen-max"  # 优化器使用的模型（通义千问）
+  optimizer_temperature: 0.7  # 优化器温度参数
+  optimizer_max_tokens: 4000  # 优化器最大token数
+  # 生成器配置
+  # PDF引擎使用WeasyPrint，无需额外配置
+
 # 加密配置（可选）
 # encryption_key: ""  # 加密主密钥（建议通过环境变量 ENCRYPTION_KEY 设置）
 # 注意：生产环境必须设置加密主密钥，用于加密存储API密钥等敏感信息

@@ -1,0 +1,12 @@
+{
+  "name": "技术模板",
+  "description": "适合技术人员的简历模板",
+  "category": "技术",
+  "supported_sections": [
+    "personal_info",
+    "education",
+    "work_experience",
+    "project_experience",
+    "skills"
+  ]
+}

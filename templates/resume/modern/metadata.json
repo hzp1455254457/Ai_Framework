@@ -1,0 +1,12 @@
+{
+  "name": "现代模板",
+  "description": "现代简洁风格的简历模板",
+  "category": "现代",
+  "supported_sections": [
+    "personal_info",
+    "education",
+    "work_experience",
+    "project_experience",
+    "skills"
+  ]
+}

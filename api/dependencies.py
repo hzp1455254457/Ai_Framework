@@ -12,6 +12,7 @@ from core.llm.service import LLMService
 from core.agent.engine import AgentEngine
 from core.agent.collaboration import AgentOrchestrator
 from core.vision.service import VisionService
+from core.resume.service import ResumeService
 # 导入抽象接口架构
 from core.interfaces.agent import IAgentEngine
 from core.composition.component_manager import ComponentManager
@@ -307,6 +308,40 @@ async def get_vision_service(
             raise HTTPException(
                 status_code=500,
                 detail=f"Vision服务初始化失败: {str(e)}"
+            ) from e
+    
+    return _service_cache[cache_key]
+
+
+async def get_resume_service(
+    config_manager: ConfigManager = Depends(get_config_manager),
+    llm_service: LLMService = Depends(get_llm_service),
+) -> ResumeService:
+    """
+    获取Resume服务实例
+    
+    参数:
+        config_manager: 配置管理器实例
+        llm_service: LLM服务实例（用于简历优化）
+    
+    返回:
+        Resume服务实例
+    
+    异常:
+        HTTPException: 服务初始化失败时抛出
+    """
+    cache_key = "resume_service"
+    
+    if cache_key not in _service_cache:
+        try:
+            config = config_manager.config
+            service = ResumeService(config, llm_service)
+            await service.initialize()
+            _service_cache[cache_key] = service
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Resume服务初始化失败: {str(e)}"
             ) from e
     
     return _service_cache[cache_key]

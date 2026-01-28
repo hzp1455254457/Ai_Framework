@@ -38,6 +38,13 @@
   - [图像生成接口](#1-图像生成接口)
   - [图像分析接口](#2-图像分析接口)
   - [图像编辑接口](#3-图像编辑接口)
+- [Resume API](#resume-api)
+  - [解析简历接口](#1-解析简历接口)
+  - [优化简历接口](#2-优化简历接口)
+  - [生成简历接口](#3-生成简历接口)
+  - [获取模板列表接口](#4-获取模板列表接口)
+  - [下载简历接口](#5-下载简历接口)
+  - [预览简历接口](#6-预览简历接口)
 - [Health API](#health-api)
   - [健康检查接口](#1-健康检查接口)
 - [抽象接口架构](#抽象接口架构)
@@ -990,6 +997,332 @@ async with httpx.AsyncClient() as client:
     result = response.json()
     print(f"生成了 {result['count']} 张编辑后的图像")
     print(f"图像URL: {result['images']}")
+```
+
+---
+
+## Resume API
+
+Resume API提供简历解析、优化、生成和美化功能。
+
+**Base Path**: `/api/v1/resume`
+
+### 1. 解析简历接口
+
+上传简历文件（PDF、Word或JSON格式），系统将自动解析并提取结构化数据。
+
+**端点**: `POST /api/v1/resume/parse`
+
+**请求**: 使用`multipart/form-data`格式上传文件
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| file | File | 是 | 简历文件（PDF/DOCX/JSON） |
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "解析成功",
+  "data": {
+    "personal_info": {
+      "name": "张三",
+      "email": "zhangsan@example.com",
+      "phone": "13800138000"
+    },
+    "education": [],
+    "work_experience": [],
+    "project_experience": [],
+    "skills": [],
+    "certificates": []
+  },
+  "parse_time": 2.5
+}
+```
+
+**状态码**:
+- `200 OK`: 解析成功
+- `400 Bad Request`: 文件格式不支持或文件过大
+- `500 Internal Server Error`: 解析失败
+
+**示例**:
+
+```bash
+# 使用curl
+curl -X POST "http://localhost:8000/api/v1/resume/parse" \
+  -F "file=@resume.pdf"
+```
+
+```python
+# 使用Python
+import httpx
+
+async with httpx.AsyncClient() as client:
+    with open("resume.pdf", "rb") as f:
+        response = await client.post(
+            "http://localhost:8000/api/v1/resume/parse",
+            files={"file": ("resume.pdf", f, "application/pdf")}
+        )
+    result = response.json()
+    print(f"解析成功: {result['data']['personal_info']['name']}")
+```
+
+### 2. 优化简历接口
+
+根据目标职位描述对简历进行智能优化，提供优化建议和评分。
+
+**端点**: `POST /api/v1/resume/optimize`
+
+**请求体**:
+```json
+{
+  "resume_data": {
+    "personal_info": {
+      "name": "张三",
+      "email": "zhangsan@example.com"
+    },
+    "education": [],
+    "work_experience": [],
+    "project_experience": [],
+    "skills": [],
+    "certificates": []
+  },
+  "job_description": "Python开发工程师，要求3年以上经验",
+  "optimization_level": "advanced"
+}
+```
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| resume_data | ResumeData | 是 | 简历数据 |
+| job_description | String | 否 | 目标职位描述 |
+| optimization_level | String | 否 | 优化级别：basic/advanced（默认：basic） |
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "优化成功",
+  "data": {
+    "optimized_resume": {
+      "personal_info": {...},
+      "education": [...],
+      "work_experience": [...]
+    },
+    "suggestions": [
+      {
+        "category": "内容",
+        "priority": "高",
+        "description": "建议添加量化成果",
+        "original_text": "负责系统开发",
+        "suggested_text": "负责系统开发，提升性能30%"
+      }
+    ],
+    "score": 85.5,
+    "score_breakdown": {
+      "内容": 90.0,
+      "格式": 80.0,
+      "关键词": 86.0
+    },
+    "optimization_level": "advanced"
+  },
+  "optimization_time": 5.2
+}
+```
+
+**状态码**:
+- `200 OK`: 优化成功
+- `400 Bad Request`: 请求参数错误
+- `500 Internal Server Error`: 优化失败（LLM服务不可用或调用失败）
+
+**示例**:
+
+```python
+import httpx
+
+async with httpx.AsyncClient() as client:
+    response = await client.post(
+        "http://localhost:8000/api/v1/resume/optimize",
+        json={
+            "resume_data": resume_data,
+            "job_description": "Python开发工程师",
+            "optimization_level": "advanced"
+        }
+    )
+    result = response.json()
+    print(f"优化评分: {result['data']['score']}")
+    print(f"优化建议数: {len(result['data']['suggestions'])}")
+```
+
+### 3. 生成简历接口
+
+根据简历数据和选定的模板生成HTML或PDF格式的简历。
+
+**端点**: `POST /api/v1/resume/generate`
+
+**请求体**:
+```json
+{
+  "resume_data": {
+    "personal_info": {...},
+    "education": [...],
+    "work_experience": [...]
+  },
+  "template_id": "classic",
+  "output_format": "html"
+}
+```
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| resume_data | ResumeData | 是 | 简历数据 |
+| template_id | String | 是 | 模板ID |
+| output_format | String | 否 | 输出格式：html/pdf（默认：html） |
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "生成成功",
+  "file_id": "resume_123",
+  "file_path": "/output/resume/resume_123.html",
+  "download_url": "/api/v1/resume/download/resume_123",
+  "preview_url": "/api/v1/resume/preview/resume_123",
+  "generation_time": 3.8
+}
+```
+
+**状态码**:
+- `200 OK`: 生成成功
+- `400 Bad Request`: 请求参数错误
+- `500 Internal Server Error`: 生成失败
+
+**示例**:
+
+```python
+import httpx
+
+async with httpx.AsyncClient() as client:
+    response = await client.post(
+        "http://localhost:8000/api/v1/resume/generate",
+        json={
+            "resume_data": resume_data,
+            "template_id": "classic",
+            "output_format": "pdf"
+        }
+    )
+    result = response.json()
+    print(f"文件ID: {result['file_id']}")
+    print(f"下载URL: {result['download_url']}")
+```
+
+### 4. 获取模板列表接口
+
+获取系统中所有可用的简历模板列表。
+
+**端点**: `GET /api/v1/resume/templates`
+
+**请求参数**: 无
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "获取模板列表成功",
+  "templates": [
+    {
+      "id": "classic",
+      "name": "经典模板",
+      "description": "适合传统行业的经典简历模板",
+      "category": "经典",
+      "preview_url": "/templates/classic/preview.png",
+      "file_path": "/templates/classic/template.html",
+      "supported_sections": ["personal_info", "education", "work_experience"]
+    }
+  ]
+}
+```
+
+**状态码**:
+- `200 OK`: 请求成功
+
+**示例**:
+
+```python
+import httpx
+
+async with httpx.AsyncClient() as client:
+    response = await client.get("http://localhost:8000/api/v1/resume/templates")
+    result = response.json()
+    for template in result["templates"]:
+        print(f"{template['name']}: {template['description']}")
+```
+
+### 5. 下载简历接口
+
+下载生成的简历文件。
+
+**端点**: `GET /api/v1/resume/download/{file_id}`
+
+**路径参数**:
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| file_id | String | 文件ID（从生成接口返回） |
+
+**响应**: 文件内容（二进制流）
+
+**状态码**:
+- `200 OK`: 下载成功
+- `404 Not Found`: 文件不存在
+
+**示例**:
+
+```python
+import httpx
+
+async with httpx.AsyncClient() as client:
+    file_id = "resume_123"
+    response = await client.get(
+        f"http://localhost:8000/api/v1/resume/download/{file_id}"
+    )
+    with open("resume.pdf", "wb") as f:
+        f.write(response.content)
+```
+
+### 6. 预览简历接口
+
+预览生成的简历文件。
+
+**端点**: `GET /api/v1/resume/preview/{file_id}`
+
+**路径参数**:
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| file_id | String | 文件ID（从生成接口返回） |
+
+**响应**: 文件内容（HTML或PDF）
+
+**状态码**:
+- `200 OK`: 预览成功
+- `404 Not Found`: 文件不存在
+
+**示例**:
+
+```python
+import httpx
+
+async with httpx.AsyncClient() as client:
+    file_id = "resume_123"
+    preview_url = f"http://localhost:8000/api/v1/resume/preview/{file_id}"
+    # 在浏览器中打开preview_url即可预览
 ```
 
 ---
