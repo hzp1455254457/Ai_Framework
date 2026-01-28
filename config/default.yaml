@@ -6,7 +6,7 @@ config_version: "2.0"
 llm:
   implementation: "langchain"  # 实现类型：native/litellm/langchain（使用LangChain实现）
   api_key: ""  # API密钥，通过环境变量或环境配置文件设置（支持加密存储，使用 encrypted: 前缀）
-  timeout: 30  # 请求超时时间（秒）
+  timeout: 120  # 请求超时时间（秒，增加到120秒以支持简历优化等长时间操作）
   max_retries: 3  # 最大重试次数
   default_model: "qwen-turbo-2024-11-01"  # 默认模型（新版API格式）
   default_adapter: ""  # 默认适配器名称（可选，不设置则自动选择）
@@ -61,8 +61,9 @@ llm:
       api_key: ""  # 豆包API密钥
       base_url: "https://ark.cn-beijing.volces.com/api/v3"  # 可选
     qwen-adapter:
-      api_key: "sk-26d4187aac964ec3b72c1cbd52f1a841"  # 通义千问API密钥
+      api_key: "sk-2753a930ae2344e2a6fcfffe25200948"  # 通义千问API密钥
       base_url: "https://dashscope.aliyuncs.com/api/v1"  # 可选
+      timeout: 180  # 请求超时时间（秒，简历优化等操作需要更长时间）
     deepseek-adapter:
       api_key: ""  # DeepSeek API密钥
       base_url: "https://api.deepseek.com/v1"  # 可选
@@ -231,7 +232,8 @@ resume:
   # 优化器配置
   optimizer_model: "qwen-max"  # 优化器使用的模型（通义千问）
   optimizer_temperature: 0.7  # 优化器温度参数
-  optimizer_max_tokens: 4000  # 优化器最大token数
+  optimizer_max_tokens: 8000  # 优化器最大token数（增加以支持更长的优化响应）
+  optimizer_timeout: 120  # 优化器超时时间（秒，LLM优化需要更长时间）
   # 生成器配置
   # PDF引擎使用WeasyPrint，无需额外配置
 

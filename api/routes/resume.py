@@ -103,6 +103,18 @@ async def optimize_resume(
         response = await resume_service.optimize_resume(request)
         return response
     except Exception as e:
+        # 记录详细错误信息
+        import logging
+        logger = logging.getLogger("api.routes.resume")
+        logger.error(
+            f"优化简历API调用失败: {type(e).__name__}: {str(e)}",
+            exc_info=True,
+            extra={
+                "optimization_level": request.optimization_level,
+                "has_job_description": bool(request.job_description),
+                "has_resume_data": bool(request.resume_data),
+            }
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"优化简历失败: {str(e)}"
@@ -129,6 +141,18 @@ async def generate_resume(
         response = await resume_service.generate_resume(request)
         return response
     except Exception as e:
+        # 记录详细错误信息
+        import logging
+        logger = logging.getLogger("api.routes.resume")
+        logger.error(
+            f"生成简历API调用失败: {type(e).__name__}: {str(e)}",
+            exc_info=True,
+            extra={
+                "template_id": request.template_id,
+                "output_format": request.output_format,
+                "has_resume_data": bool(request.resume_data),
+            }
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"生成简历失败: {str(e)}"
@@ -182,15 +206,34 @@ async def download_resume(
                 html_file,
                 media_type="text/html",
                 filename=f"resume_{file_id}.html",
+                headers={"Content-Disposition": f'attachment; filename="resume_{file_id}.html"'},
             )
         
         # 尝试查找PDF文件
         pdf_file = output_dir / f"{file_id}.pdf"
         if pdf_file.exists():
+            # 验证PDF文件是否有效（检查文件大小和PDF文件头）
+            file_size = pdf_file.stat().st_size
+            if file_size == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="PDF文件为空，可能生成失败"
+                )
+            
+            # 检查PDF文件头（PDF文件应该以%PDF开头）
+            with open(pdf_file, "rb") as f:
+                header = f.read(4)
+                if header != b"%PDF":
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="PDF文件格式无效，文件可能损坏"
+                    )
+            
             return FileResponse(
                 pdf_file,
                 media_type="application/pdf",
                 filename=f"resume_{file_id}.pdf",
+                headers={"Content-Disposition": f'attachment; filename="resume_{file_id}.pdf"'},
             )
         
         raise HTTPException(

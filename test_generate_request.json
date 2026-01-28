@@ -1,0 +1,24 @@
+{
+  "resume_data": {
+    "personal_info": {
+      "name": "测试用户",
+      "email": "test@example.com"
+    },
+    "education": [],
+    "work_experience": [],
+    "project_experience": [],
+    "skills": [
+      {
+        "category": "编程语言",
+        "items": ["Python"]
+      }
+    ],
+    "certificates": [],
+    "languages": [],
+    "awards": [],
+    "publications": [],
+    "volunteer_experience": []
+  },
+  "template_id": "tech",
+  "output_format": "html"
+}

@@ -209,9 +209,13 @@ class LLMService(BaseService):
             # 对于LiteLLM适配器，即使没有配置也可以注册（LiteLLM可以从环境变量读取）
             if adapter_config or adapter_name == "litellm-adapter":
                 try:
+                    # 将全局配置传递给适配器，以便适配器可以读取超时等全局设置
+                    adapter_config_with_global = (adapter_config.copy() if adapter_config else {})
+                    adapter_config_with_global["_global_config"] = self._config
+                    
                     adapter = await self._registry.create_adapter(
                         adapter_name,
-                        adapter_config or {},
+                        adapter_config_with_global,
                         connection_pool=self._connection_pool,
                     )
                     self._adapters[adapter_name] = adapter

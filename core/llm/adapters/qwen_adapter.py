@@ -16,7 +16,8 @@
 import json
 import logging
 from typing import List, Dict, Any, Optional, AsyncIterator
-from httpx import AsyncClient, HTTPError
+import httpx
+from httpx import AsyncClient, HTTPError, ReadTimeout
 from core.llm.adapters.base import BaseLLMAdapter
 from core.base.adapter import AdapterCallError
 from core.llm.models import ModelCapability
@@ -94,6 +95,17 @@ class QwenAdapter(BaseLLMAdapter):
         
         self._base_url = self._config.get("base_url", self._base_url)
         
+        # 从配置读取超时时间，默认120秒（支持简历优化等长时间操作）
+        # 优先使用适配器配置的timeout，其次使用全局llm.timeout
+        adapter_timeout = self._config.get("timeout", None)
+        if adapter_timeout is None:
+            # 尝试从全局配置读取
+            global_config = self._config.get("_global_config", {})
+            llm_config = global_config.get("llm", {})
+            adapter_timeout = llm_config.get("timeout", 120.0)
+        else:
+            adapter_timeout = float(adapter_timeout)
+        
         # 创建HTTP客户端（使用连接池或直接创建）
         if self._connection_pool:
             self._client = await self._connection_pool.get_client(
@@ -102,12 +114,12 @@ class QwenAdapter(BaseLLMAdapter):
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
                 },
-                timeout=30.0,
+                timeout=adapter_timeout,
             )
         else:
             self._client = AsyncClient(
                 base_url=self._base_url,
-                timeout=30.0,
+                timeout=adapter_timeout,
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
@@ -250,17 +262,24 @@ class QwenAdapter(BaseLLMAdapter):
         if kwargs:
             request_data["parameters"].update(kwargs)
         
-        # 记录完整的请求数据（用于调试）
+        # 记录关键请求信息（不记录完整数据以避免日志过大）
         try:
             import json as json_module
-            request_str = json_module.dumps(request_data, ensure_ascii=False, indent=2)
-            self.logger.debug(f"通义千问API请求数据: {request_str}")
-            # 特别记录messages结构，检查tool消息格式
-            if "input" in request_data and "messages" in request_data["input"]:
-                messages_str = json_module.dumps(request_data["input"]["messages"], ensure_ascii=False, indent=2)
-                self.logger.debug(f"通义千问API请求messages: {messages_str}")
+            # 只记录关键信息，不记录完整的prompt内容
+            request_summary = {
+                "model": model,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "messages_count": len(request_data.get("input", {}).get("messages", [])),
+                "has_tools": bool(request_data.get("input", {}).get("tools")),
+            }
+            self.logger.debug(f"通义千问API请求摘要: {json_module.dumps(request_summary, ensure_ascii=False)}")
+            # 只在TRACE级别记录完整数据（如果需要详细调试）
+            if self.logger.isEnabledFor(logging.DEBUG - 1):  # TRACE级别
+                request_str = json_module.dumps(request_data, ensure_ascii=False, indent=2)
+                self.logger.log(logging.DEBUG - 1, f"通义千问API完整请求数据: {request_str}")
         except Exception as e:
-            self.logger.debug(f"无法序列化请求数据: {e}")
+            self.logger.debug(f"无法记录请求摘要: {e}")
         
         try:
             # 发送请求
@@ -452,16 +471,67 @@ class QwenAdapter(BaseLLMAdapter):
             }
             
         except HTTPError as e:
-            error_detail = f"HTTP状态码: {e.response.status_code if hasattr(e, 'response') else 'unknown'}"
-            if hasattr(e, 'response'):
+            # 正确提取HTTP状态码和错误信息
+            status_code = "unknown"
+            error_body = None
+            error_text = None
+            
+            if hasattr(e, 'response') and e.response is not None:
+                status_code = e.response.status_code
                 try:
                     error_body = e.response.json()
-                    error_detail += f", 响应: {json.dumps(error_body, ensure_ascii=False)}"
-                except:
-                    error_detail += f", 响应文本: {e.response.text[:200]}"
+                except Exception:
+                    try:
+                        error_text = e.response.text[:500]  # 限制长度
+                    except Exception:
+                        pass
+            
+            # 构建详细的错误信息
+            error_detail = f"HTTP状态码: {status_code}"
+            if error_body:
+                error_msg = error_body.get("message") or error_body.get("error", {}).get("message", "")
+                if error_msg:
+                    error_detail += f", 错误信息: {error_msg}"
+                else:
+                    error_detail += f", 响应: {json.dumps(error_body, ensure_ascii=False)[:200]}"
+            elif error_text:
+                error_detail += f", 响应文本: {error_text}"
+            
+            # 记录详细错误日志
+            self.logger.error(
+                f"通义千问API调用失败: {error_detail}",
+                exc_info=True,
+                extra={
+                    "status_code": status_code,
+                    "error_body": error_body,
+                    "model": model,
+                }
+            )
             raise AdapterCallError(f"通义千问API调用失败: {error_detail}") from e
+        except ReadTimeout as e:
+            # 处理超时错误
+            timeout_detail = f"请求超时（模型: {model}, 超时时间: {self._client.timeout if self._client else 'unknown'}秒）"
+            self.logger.error(
+                f"通义千问API调用超时: {timeout_detail}",
+                exc_info=True,
+                extra={
+                    "model": model,
+                    "timeout": self._client.timeout if self._client else None,
+                }
+            )
+            raise AdapterCallError(f"通义千问API调用超时: {timeout_detail}") from e
         except Exception as e:
-            raise AdapterCallError(f"通义千问API调用出错: {e}") from e
+            error_type = type(e).__name__
+            error_msg = str(e)
+            self.logger.error(
+                f"通义千问API调用出错: {error_type}: {error_msg}",
+                exc_info=True,
+                extra={
+                    "model": model,
+                    "error_type": error_type,
+                }
+            )
+            raise AdapterCallError(f"通义千问API调用出错: {error_type}: {error_msg}") from e
     
     async def stream_call(
         self,

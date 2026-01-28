@@ -107,6 +107,19 @@ class ResumeGenerator(BaseService):
             await self.initialize()
         
         try:
+            # 验证简历数据
+            if not resume_data or not resume_data.personal_info:
+                raise ResumeGenerateError("简历数据无效：缺少个人信息")
+            
+            # 记录调试信息
+            self.logger.debug(
+                f"生成简历: 模板={template_id}, "
+                f"姓名={resume_data.personal_info.name}, "
+                f"邮箱={resume_data.personal_info.email}, "
+                f"教育经历数={len(resume_data.education)}, "
+                f"工作经历数={len(resume_data.work_experience)}"
+            )
+            
             # 加载模板
             template = await self._load_template(template_id)
             
@@ -152,7 +165,8 @@ class ResumeGenerator(BaseService):
         返回:
             Template: Jinja2模板对象
         """
-        template_file = f"{template_id}.html"
+        # 模板文件路径：{template_id}/template.html
+        template_file = f"{template_id}/template.html"
         
         try:
             template = self.jinja_env.get_template(template_file)
@@ -179,21 +193,45 @@ class ResumeGenerator(BaseService):
             str: 渲染后的HTML内容
         """
         try:
+            # 验证数据
+            if not resume_data or not resume_data.personal_info:
+                raise ResumeGenerateError("简历数据无效：缺少个人信息")
+            
             # 准备模板上下文
             context = {
                 "resume": resume_data,
                 "personal_info": resume_data.personal_info,
-                "education": resume_data.education,
-                "work_experience": resume_data.work_experience,
-                "project_experience": resume_data.project_experience,
-                "skills": resume_data.skills,
-                "certificates": resume_data.certificates,
+                "education": resume_data.education or [],
+                "work_experience": resume_data.work_experience or [],
+                "project_experience": resume_data.project_experience or [],
+                "skills": resume_data.skills or [],
+                "certificates": resume_data.certificates or [],
                 "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "template_id": template_id,
             }
             
+            # 记录调试信息
+            self.logger.debug(
+                f"渲染模板上下文: 姓名={context['personal_info'].name}, "
+                f"邮箱={context['personal_info'].email}"
+            )
+            
             # 渲染模板
             html_content = template.render(**context)
+            
+            # 验证渲染结果
+            if not html_content or len(html_content.strip()) < 100:
+                self.logger.warning(f"渲染后的HTML内容过短: {len(html_content)} 字符")
+            
+            # 检查是否包含模板变量（未替换）
+            if "{{" in html_content or "{%" in html_content:
+                self.logger.warning("渲染后的HTML仍包含模板变量，可能渲染失败")
+                # 尝试重新渲染
+                try:
+                    html_content = template.render(**context)
+                except Exception as e:
+                    self.logger.error(f"重新渲染失败: {e}")
+            
             return html_content
         except Exception as e:
             self.logger.error(f"渲染模板失败: {e}", exc_info=True)
@@ -232,20 +270,46 @@ class ResumeGenerator(BaseService):
         if not WEASYPRINT_AVAILABLE or HTML is None:
             raise ResumeGenerateError(
                 "WeasyPrint不可用。请先安装: pip install WeasyPrint\n"
-                "在Windows上，还需要安装GTK+库。"
+                "在Windows上，还需要安装GTK+库。\n"
+                "建议：在Windows上使用HTML格式，或安装GTK+运行时库。"
             )
         
         try:
             pdf_path = Path(self.output_dir) / f"{file_id}.pdf"
             
             # 使用WeasyPrint转换
-            html_doc = HTML(string=html_content)
+            html_doc = HTML(string=html_content, base_url=str(Path(self.template_dir).parent))
             html_doc.write_pdf(pdf_path)
             
-            self.logger.info(f"PDF文件已生成: {pdf_path}")
+            # 验证PDF文件是否成功生成
+            if not pdf_path.exists():
+                raise ResumeGenerateError("PDF文件生成失败：文件不存在")
+            
+            file_size = pdf_path.stat().st_size
+            if file_size == 0:
+                raise ResumeGenerateError("PDF文件生成失败：文件为空")
+            
+            # 验证PDF文件头
+            with open(pdf_path, "rb") as f:
+                header = f.read(4)
+                if header != b"%PDF":
+                    pdf_path.unlink()  # 删除损坏的文件
+                    raise ResumeGenerateError("PDF文件生成失败：文件格式无效")
+            
+            self.logger.info(f"PDF文件已生成: {pdf_path}, 大小: {file_size} bytes")
             return str(pdf_path)
+        except ResumeGenerateError:
+            raise
         except Exception as e:
             self.logger.error(f"PDF转换失败: {e}", exc_info=True)
+            # 如果生成了损坏的文件，尝试删除
+            pdf_path = Path(self.output_dir) / f"{file_id}.pdf"
+            if pdf_path.exists():
+                try:
+                    pdf_path.unlink()
+                    self.logger.info(f"已删除损坏的PDF文件: {pdf_path}")
+                except Exception:
+                    pass
             raise ResumeGenerateError(f"PDF转换失败: {e}") from e
     
     async def cleanup(self) -> None:

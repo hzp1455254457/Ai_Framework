@@ -137,11 +137,24 @@ class ResumeService(BaseService):
                 optimization_time=optimization_time,
             )
         except Exception as e:
-            self.logger.error(f"优化简历失败: {e}", exc_info=True)
             optimization_time = time.time() - start_time
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            self.logger.error(
+                f"优化简历失败: {error_type}: {error_msg}",
+                exc_info=True,
+                extra={
+                    "optimization_level": request.optimization_level,
+                    "has_job_description": bool(request.job_description),
+                    "optimization_time": optimization_time,
+                    "resume_name": request.resume_data.personal_info.name if request.resume_data.personal_info else "未知",
+                }
+            )
+            
             return OptimizeResumeResponse(
                 success=False,
-                message=f"优化失败: {str(e)}",
+                message=f"优化失败: {error_msg}",
                 data=None,
                 optimization_time=optimization_time,
             )
